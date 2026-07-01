@@ -116,14 +116,49 @@ class StudySystemTests(unittest.TestCase):
     def test_mcp_tools_list_and_start_session(self) -> None:
         tools_response = handle_message({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
         tool_names = {tool["name"] for tool in tools_response["result"]["tools"]}
+        self.assertIn("list_exams", tool_names)
         self.assertIn("start_session", tool_names)
         self.assertIn("prepare_notion_sync", tool_names)
+
+        exams = call_tool("list_exams", {})
+        self.assertEqual(exams["structuredContent"]["available"][0]["id"], "SQLD")
+        planned_ids = {row["id"] for row in exams["structuredContent"]["planned"]}
+        self.assertIn("AWS_AI_PRACTITIONER", planned_ids)
 
         call_tool("init_study_db", {})
         result = call_tool("start_session", {"exam": "SQLD", "count": 5, "seed": 4})
         text = result["content"][0]["text"]
         self.assertIn("session_id:", text)
         self.assertIn("[1/5]", text)
+        self.assertNotIn("[2/5]", text)
+        self.assertNotIn("정답:", text)
+        self.assertNotIn("정답표", text)
+
+    def test_unsupported_exam_does_not_start_ad_hoc_generation(self) -> None:
+        response = handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 7,
+                "method": "tools/call",
+                "params": {
+                    "name": "start_session",
+                    "arguments": {"exam": "AWS_AI_PRACTITIONER", "count": 5},
+                },
+            }
+        )
+
+        self.assertTrue(response["result"]["isError"])
+        text = response["result"]["content"][0]["text"]
+        self.assertIn("지원하지 않는 시험", text)
+        self.assertIn("SQLD", text)
+
+    def test_skill_forbids_batch_generation_and_answer_keys(self) -> None:
+        skill_text = (Path(__file__).resolve().parents[1] / "skills" / "cert-study" / "SKILL.md").read_text()
+
+        self.assertIn("문제 N개 줘", skill_text)
+        self.assertIn("일반 답변으로 문제를 만들지 말고", skill_text)
+        self.assertIn("세션 종료 전에는 정답표", skill_text)
+        self.assertIn("현재 실제 문제은행으로 출제 가능한 과목은 SQLD뿐", skill_text)
 
     def test_mcp_finish_session_returns_obsidian_paths_without_default_notion_plan(self) -> None:
         call_tool("init_study_db", {})

@@ -14,6 +14,20 @@ from .seed_sqld import seed as seed_sqld
 PROTOCOL_VERSION = "2024-11-05"
 
 
+PLANNED_EXAMS: list[dict[str, str]] = [
+    {"id": "ADSP", "name": "ADsP", "status": "planned"},
+    {"id": "KR_INFO_PROCESSING_ENGINEER", "name": "정보처리기사", "status": "planned"},
+    {"id": "AWS_AI_PRACTITIONER", "name": "AWS Certified AI Practitioner", "status": "planned"},
+    {"id": "AWS_CLOUD_PRACTITIONER", "name": "AWS Certified Cloud Practitioner", "status": "planned"},
+    {
+        "id": "AWS_SOLUTIONS_ARCHITECT_ASSOCIATE",
+        "name": "AWS Certified Solutions Architect Associate",
+        "status": "planned",
+    },
+    {"id": "GCP_GENERATIVE_AI_LEADER", "name": "Google Cloud Generative AI Leader", "status": "planned"},
+]
+
+
 TOOLS: list[dict[str, Any]] = [
     {
         "name": "init_study_db",
@@ -21,8 +35,13 @@ TOOLS: list[dict[str, Any]] = [
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     },
     {
+        "name": "list_exams",
+        "description": "현재 실제 문제은행으로 지원되는 시험과 계획 단계 과목을 확인한다.",
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    {
         "name": "start_session",
-        "description": "CBT 방식 자격증 학습 세션을 시작하고 첫 문제를 반환한다.",
+        "description": "지원되는 실제 문제은행으로 CBT 세션을 시작하고 첫 문제만 반환한다. 정답표나 여러 문제를 한 번에 생성하지 않는다.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -95,7 +114,7 @@ def handle_message(message: dict[str, Any]) -> dict[str, Any] | None:
             {
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "cert-study", "version": "0.2.0"},
+                "serverInfo": {"name": "cert-study", "version": "0.2.1"},
             },
         )
     if method == "tools/list":
@@ -117,6 +136,24 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
             initialize(conn)
             seed_sqld(conn)
         return text_result("로컬 학습 DB를 초기화했습니다.")
+
+    if name == "list_exams":
+        with ready_conn() as conn:
+            supported = [
+                {"id": row["id"], "name": row["name"], "status": "available"}
+                for row in conn.execute("SELECT id, name FROM exams ORDER BY id").fetchall()
+            ]
+        payload = {
+            "available": supported,
+            "planned": PLANNED_EXAMS,
+            "note": "현재 CBT 세션으로 실제 출제 가능한 문제은행은 available 항목뿐입니다.",
+        }
+        lines = ["현재 실제 출제 가능한 과목:"]
+        lines.extend(f"- {row['id']}: {row['name']}" for row in supported)
+        lines.append("")
+        lines.append("계획 단계 과목:")
+        lines.extend(f"- {row['id']}: {row['name']}" for row in PLANNED_EXAMS)
+        return text_result("\n".join(lines), payload)
 
     if name == "start_session":
         with ready_conn() as conn:

@@ -70,7 +70,10 @@ def create_session(
 def get_exam(conn: sqlite3.Connection, exam_id: str) -> sqlite3.Row:
     row = conn.execute("SELECT * FROM exams WHERE id = ?", (exam_id,)).fetchone()
     if row is None:
-        raise ValueError(f"unknown exam: {exam_id}")
+        supported = ", ".join(
+            item["id"] for item in conn.execute("SELECT id FROM exams ORDER BY id").fetchall()
+        ) or "없음"
+        raise ValueError(f"지원하지 않는 시험입니다: {exam_id}. 현재 실제 문제은행: {supported}")
     return row
 
 
@@ -342,4 +345,3 @@ def schedule_reviews(conn: sqlite3.Connection, session_id: str) -> None:
             """,
             (f"rev-{uuid.uuid4().hex[:12]}", row["question_id"], row["question_id"], next_review, updated_at),
         )
-

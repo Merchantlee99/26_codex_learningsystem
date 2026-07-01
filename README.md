@@ -45,11 +45,13 @@ flowchart TD
 
 첫 구현 대상은 SQLD입니다. SQLD 세션을 시작하면 시스템이 문제를 하나씩 내고, 사용자의 답을 기록하고, 마지막에 점수와 합격선, 영역별 결과, 틀린 문제, 내 답, 정답, 해설, 오답 이유, 반복 오답, 다음 복습일을 정리합니다.
 
+현재 실제 문제은행으로 출제 가능한 과목은 SQLD뿐입니다. ADsP, 정보처리기사, AWS, GCP 과목은 목표 목록에는 있지만 아직 CBT 세션을 시작할 수 있는 문제은행이 없습니다. 해당 과목은 임의로 문제를 만들지 않고, 먼저 문제은행을 추가해야 합니다.
+
 | 구성 | 위치 | 역할 |
 | --- | --- | --- |
 | 플러그인 매니페스트 | `.codex-plugin/plugin.json` | Codex가 설치 가능한 플러그인으로 인식하는 메타데이터 |
 | MCP 설정 | `.mcp.json` | `cert-study` stdio MCP 서버 연결 |
-| MCP 서버 | `cert_study/mcp_server.py` | `start_session`, `submit_answer`, `finish_session`, 선택적 `prepare_notion_sync` 도구 제공 |
+| MCP 서버 | `cert_study/mcp_server.py` | `list_exams`, `start_session`, `submit_answer`, `finish_session`, 선택적 `prepare_notion_sync` 도구 제공 |
 | CLI 진입점 | `cert_study/cli.py` | `init`, `session start`, `answer`, `finish`, `report`, 선택적 `notion plan` 명령 제공 |
 | SQLite 스키마 | `cert_study/db.py` | 시험, 도메인, 개념, 문제, 세션, 풀이, 복습 큐 저장 |
 | CBT 엔진 | `cert_study/engine.py` | 문제 선택, 답변 기록, 채점, 합격권 판정, 복습 큐 갱신 |
@@ -198,6 +200,7 @@ MCP 서버가 제공하는 도구는 아래와 같습니다.
 | 도구 | 역할 |
 | --- | --- |
 | `init_study_db` | 로컬 SQLite 초기화와 SQLD 훈련 데이터 seed |
+| `list_exams` | 현재 실제 출제 가능한 과목과 계획 단계 과목 확인 |
 | `start_session` | CBT 세션 시작과 첫 문제 반환 |
 | `submit_answer` | 1~4번 답변 기록과 다음 문제 반환 |
 | `finish_session` | 세션 채점과 리포트 생성 |
@@ -311,6 +314,7 @@ AGENTS.md
 
 - Codex 플러그인 매니페스트
 - CBT 세션용 stdio MCP 도구
+- 지원 과목 확인용 `list_exams` 도구
 - SQLD 합성 문제은행
 - CBT 세션 시작/답변/현재 문제/종료 명령
 - SQLite 학습 원장

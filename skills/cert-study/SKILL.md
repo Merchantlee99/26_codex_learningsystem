@@ -5,7 +5,7 @@ description: Codex 안에서 자격증 CBT 학습 세션을 진행하고, SQLite
 
 # Cert Study Skill
 
-사용자가 Codex 안에서 SQLD, ADsP, 정보처리기사, AWS Certified AI Practitioner, AWS Certified Cloud Practitioner, AWS Solutions Architect Associate, Google Cloud Generative AI Leader 공부를 요청하면 이 skill을 사용한다.
+사용자가 Codex 안에서 자격증 CBT 학습, 문제 풀이, 오답노트, 복습 세션을 요청하면 이 skill을 사용한다.
 
 ## 역할
 
@@ -18,6 +18,19 @@ Codex는 아래 역할을 맡는다.
 
 시험 인터페이스는 채팅창이다. 상태 관리는 플러그인 MCP 도구를 우선 사용한다. 로컬 CLI는 대체 수단과 디버깅 표면이다.
 
+## 핵심 가드레일
+
+이 plugin은 문제 생성기가 아니라 CBT 세션 관리자다.
+
+- 사용자가 `문제 N개 줘`, `시험 문제 내줘`, `출제해줘`, `모의고사 시작`처럼 말하면 일반 답변으로 문제를 만들지 말고 CBT 세션으로 라우팅한다.
+- 세션 시작은 반드시 `start_session` MCP 도구 또는 `python3 -m cert_study session start ...`로 한다.
+- 세션 중에는 한 번에 한 문제만 보여준다.
+- 세션 종료 전에는 정답표, 해설, 정답 번호를 공개하지 않는다.
+- 사용자가 즉시 피드백을 명시적으로 요청한 경우를 제외하면, 매 문제마다 정답 여부도 공개하지 않는다.
+- 현재 실제 문제은행으로 출제 가능한 과목은 SQLD뿐이다.
+- ADsP, 정보처리기사, AWS, GCP 과목은 목표 catalog에만 있고 아직 실제 문제은행이 없다. 이 과목을 요청하면 문제를 임의 생성하지 말고 “아직 문제은행이 없어 CBT 세션을 시작할 수 없다”고 말한다.
+- 지원 여부가 애매하면 먼저 `list_exams`를 호출한다.
+
 ## 첫 지원 과목
 
 현재 구현된 첫 과목은 SQLD다.
@@ -26,6 +39,7 @@ Codex는 아래 역할을 맡는다.
 
 ```text
 init_study_db
+list_exams
 start_session
 submit_answer
 finish_session
@@ -52,30 +66,36 @@ python3 -m cert_study notion plan <session_id>
    python3 -m cert_study init
    ```
 
-2. 사용자가 `SQLD 문제 시작`이라고 말하면 필요한 경우에만 확인한다.
+2. 사용자가 문제 풀이를 요청하면 먼저 과목이 실제 지원되는지 판단한다.
+
+   - 지원 여부가 애매하면 `list_exams`를 호출한다.
+   - 현재 실제 CBT 출제 가능 과목은 `SQLD`다.
+   - `AWS Certified AI Practitioner`, `ADsP`, `정보처리기사`, `Google Cloud Generative AI Leader` 등 아직 bank가 없는 과목은 임의로 문제를 만들지 않는다.
+
+3. 사용자가 `SQLD 문제 시작`, `SQLD 문제 5개 줘`, `SQLD 시험 문제 내줘`라고 말하면 필요한 경우에만 확인한다.
 
    - `SQLD 정규 모의고사` -> 정규 세션 시작
    - `SQLD 20문제` -> 20문제 커스텀 세션 시작
    - 문제 수가 없으면 기본값 20문제
 
-3. 문제는 한 번에 하나만 보여준다.
+4. 문제는 한 번에 하나만 보여준다.
 
-4. 사용자가 숫자로 답하면 `submit_answer`를 호출하거나 아래 명령을 실행한다.
+5. 사용자가 숫자로 답하면 `submit_answer`를 호출하거나 아래 명령을 실행한다.
 
    ```bash
    python3 -m cert_study session answer <session_id> <answer>
    ```
 
-5. 사용자가 즉시 피드백을 원하지 않는 한, 매 문제마다 정답 여부를 공개하지 않는다.
+6. 사용자가 즉시 피드백을 원하지 않는 한, 매 문제마다 정답 여부를 공개하지 않는다.
 
-6. 모든 문제에 답하면 `finish_session`을 호출하거나 아래 명령을 실행한다.
+7. 모든 문제에 답하면 `finish_session`을 호출하거나 아래 명령을 실행한다.
 
    ```bash
    python3 -m cert_study session finish <session_id>
    ```
 
-7. 채팅에 리포트를 요약하고 로컬 리포트 경로를 알려준다.
-8. 생성된 Obsidian 세션 노트와 복습 큐 경로도 함께 알려준다.
+8. 채팅에 리포트를 요약하고 로컬 리포트 경로를 알려준다.
+9. 생성된 Obsidian 세션 노트와 복습 큐 경로도 함께 알려준다.
 
 ## 최종 리포트에 반드시 포함할 것
 
