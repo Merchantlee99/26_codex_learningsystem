@@ -49,7 +49,12 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--exam", default="SQLD")
     start.add_argument("--count", type=int)
     start.add_argument("--regular", action="store_true", help="시험의 정규 문항 수를 사용합니다.")
-    start.add_argument("--mode", default="custom-cbt")
+    start.add_argument(
+        "--mode",
+        default="custom-cbt",
+        choices=["custom-cbt", "review-cbt", "weak-cbt"],
+        help="custom-cbt는 미풀이 우선, review-cbt는 복습 예정/오답 우선, weak-cbt는 취약 개념 우선입니다.",
+    )
     start.add_argument("--seed", type=int, help="문항 선택을 재현하기 위한 seed입니다.")
     start.set_defaults(func=cmd_session_start)
 
@@ -93,6 +98,23 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 def cmd_stats(args: argparse.Namespace) -> int:
     with ready_conn() as conn:
+        summaries = conn.execute(
+            """
+            SELECT
+              e.id AS exam,
+              e.name AS name,
+              e.official_question_count AS official_count,
+              COUNT(DISTINCT q.id) AS available_count,
+              COUNT(DISTINCT a.question_id) AS attempted_count,
+              COUNT(DISTINCT CASE WHEN rq.next_review_at <= DATE('now') THEN rq.question_id END) AS due_review_count
+            FROM exams e
+            LEFT JOIN questions q ON q.exam_id = e.id
+            LEFT JOIN attempts a ON a.question_id = q.id
+            LEFT JOIN review_queue rq ON rq.question_id = q.id
+            GROUP BY e.id, e.name, e.official_question_count
+            ORDER BY e.id
+            """
+        ).fetchall()
         rows = conn.execute(
             """
             SELECT e.id AS exam, d.name AS domain, COUNT(q.id) AS questions
@@ -103,6 +125,14 @@ def cmd_stats(args: argparse.Namespace) -> int:
             ORDER BY e.id, d.id
             """
         ).fetchall()
+    for row in summaries:
+        rounds = round(row["available_count"] / row["official_count"], 2) if row["official_count"] else 0
+        unseen = row["available_count"] - row["attempted_count"]
+        print(
+            f"{row['exam']} | 총 {row['available_count']}문항 | 정규 {row['official_count']}문항 | "
+            f"{rounds:g}회분 | 미풀이 {unseen}문항 | 복습예정 {row['due_review_count']}문항"
+        )
+    print("")
     for row in rows:
         print(f"{row['exam']} | {row['domain']} | {row['questions']}문항")
     return 0

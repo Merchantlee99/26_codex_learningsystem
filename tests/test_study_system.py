@@ -65,6 +65,36 @@ class StudySystemTests(unittest.TestCase):
         self.assertEqual(by_domain["데이터 모델링의 이해"], 4)
         self.assertEqual(by_domain["SQL 기본 및 활용"], 16)
 
+    def test_custom_session_prefers_unseen_questions_before_repeating(self) -> None:
+        first = create_session(self.conn, exam_id="SQLD", count=10, mode="custom-cbt", seed=11)
+        first_ids = set(session_question_ids(self.conn, first.session_id))
+        answer_all_with_correct_answers(self.conn, first.session_id)
+        finish_session(self.conn, first.session_id)
+
+        second = create_session(self.conn, exam_id="SQLD", count=10, mode="custom-cbt", seed=11)
+        second_ids = set(session_question_ids(self.conn, second.session_id))
+
+        self.assertTrue(first_ids.isdisjoint(second_ids))
+
+    def test_review_mode_prioritizes_due_wrong_questions(self) -> None:
+        first = create_session(self.conn, exam_id="SQLD", count=10, mode="custom-cbt", seed=12)
+        current = get_next_unanswered(self.conn, first.session_id)
+        self.assertIsNotNone(current)
+        wrong_question_id = current.question_id
+        correct = correct_answer_for(self.conn, wrong_question_id)
+        submit_answer(self.conn, first.session_id, 2 if correct != 2 else 1)
+        answer_all_with_correct_answers(self.conn, first.session_id)
+        finish_session(self.conn, first.session_id)
+        self.conn.execute(
+            "UPDATE review_queue SET next_review_at = '2000-01-01' WHERE question_id = ?",
+            (wrong_question_id,),
+        )
+        self.conn.commit()
+
+        review = create_session(self.conn, exam_id="SQLD", count=20, mode="review-cbt", seed=13)
+
+        self.assertIn(wrong_question_id, session_question_ids(self.conn, review.session_id))
+
     def test_perfect_session_scores_100_and_passes(self) -> None:
         first = create_session(self.conn, exam_id="SQLD", count=10, mode="custom-cbt", seed=1)
         answer_all_with_correct_answers(self.conn, first.session_id)
@@ -141,12 +171,17 @@ class StudySystemTests(unittest.TestCase):
         self.assertIn("list_exams", tool_names)
         self.assertIn("start_session", tool_names)
         self.assertIn("prepare_notion_sync", tool_names)
+        start_tool = next(tool for tool in tools_response["result"]["tools"] if tool["name"] == "start_session")
+        self.assertIn("mode", start_tool["inputSchema"]["properties"])
 
         exams = call_tool("list_exams", {})
         available_ids = {row["id"] for row in exams["structuredContent"]["available"]}
         self.assertIn("SQLD", available_ids)
         self.assertIn("ADSP", available_ids)
         self.assertIn("KR_INFO_PROCESSING_ENGINEER", available_ids)
+        sqld = next(row for row in exams["structuredContent"]["available"] if row["id"] == "SQLD")
+        self.assertEqual(sqld["available_questions"], 50)
+        self.assertEqual(sqld["bank_rounds"], 1.0)
         planned_ids = {row["id"] for row in exams["structuredContent"]["planned"]}
         self.assertIn("AWS_AI_PRACTITIONER", planned_ids)
 
@@ -254,6 +289,16 @@ class StudySystemTests(unittest.TestCase):
 
 def correct_answer_for(conn, question_id: str) -> int:
     return conn.execute("SELECT answer FROM questions WHERE id = ?", (question_id,)).fetchone()["answer"]
+
+
+def session_question_ids(conn, session_id: str) -> list[str]:
+    return [
+        row["question_id"]
+        for row in conn.execute(
+            "SELECT question_id FROM session_questions WHERE session_id = ? ORDER BY position",
+            (session_id,),
+        ).fetchall()
+    ]
 
 
 def answer_all_with_correct_answers(conn, session_id: str) -> None:

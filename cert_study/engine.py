@@ -8,6 +8,10 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Iterable
 
+RECENT_EXCLUSION_DAYS = 1
+REVIEW_MODES = {"review-cbt", "review", "due-review"}
+WEAK_MODES = {"weak-cbt", "weak", "weak-review"}
+
 
 @dataclass(frozen=True)
 class QuestionView:
@@ -47,7 +51,7 @@ def create_session(
     if requested_count <= 0:
         raise ValueError("count must be greater than 0")
 
-    questions = select_questions(conn, exam_id=exam_id, count=requested_count, seed=seed)
+    questions = select_questions(conn, exam_id=exam_id, count=requested_count, mode=mode, seed=seed)
     session_id = session_id_for(exam_id)
     conn.execute(
         """
@@ -82,6 +86,7 @@ def select_questions(
     *,
     exam_id: str,
     count: int,
+    mode: str = "custom-cbt",
     seed: int | None = None,
 ) -> list[sqlite3.Row]:
     domains = conn.execute(
@@ -94,18 +99,129 @@ def select_questions(
     rng = random.Random(seed if seed is not None else datetime.now().timestamp())
     selected: list[sqlite3.Row] = []
     for domain in domains:
-        rows = conn.execute(
-            "SELECT * FROM questions WHERE exam_id = ? AND domain_id = ? ORDER BY id",
-            (exam_id, domain["id"]),
-        ).fetchall()
+        rows = question_candidates(conn, exam_id=exam_id, domain_id=domain["id"])
         need = counts[domain["id"]]
         if len(rows) < need:
             raise ValueError(f"not enough questions for {domain['name']}: need {need}, have {len(rows)}")
-        shuffled = list(rows)
-        rng.shuffle(shuffled)
-        selected.extend(shuffled[:need])
+        ranked = rank_question_candidates(rows, mode=mode, rng=rng)
+        selected.extend(ranked[:need])
     rng.shuffle(selected)
     return selected
+
+
+def question_candidates(conn: sqlite3.Connection, *, exam_id: str, domain_id: str) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT
+          q.*,
+          COUNT(a.id) AS attempt_count,
+          COALESCE(SUM(CASE WHEN a.is_correct = 0 THEN 1 ELSE 0 END), 0) AS wrong_count,
+          MAX(a.created_at) AS last_attempt_at,
+          rq.next_review_at,
+          COALESCE(rq.review_stage, 0) AS review_stage,
+          COALESCE(rq.last_result, '') AS last_review_result,
+          (
+            SELECT COUNT(*)
+            FROM attempts ca
+            JOIN questions cq ON cq.id = ca.question_id
+            WHERE cq.concept_id = q.concept_id
+              AND ca.is_correct = 0
+          ) AS concept_wrong_count
+        FROM questions q
+        LEFT JOIN attempts a ON a.question_id = q.id
+        LEFT JOIN review_queue rq ON rq.question_id = q.id
+        WHERE q.exam_id = ? AND q.domain_id = ?
+        GROUP BY q.id
+        ORDER BY q.id
+        """,
+        (exam_id, domain_id),
+    ).fetchall()
+
+
+def rank_question_candidates(rows: list[sqlite3.Row], *, mode: str, rng: random.Random) -> list[sqlite3.Row]:
+    ranked = list(rows)
+    rng.shuffle(ranked)
+    ranked.sort(key=lambda row: question_priority(row, mode=mode))
+    return ranked
+
+
+def question_priority(row: sqlite3.Row, *, mode: str) -> tuple[object, ...]:
+    attempt_count = int(row["attempt_count"] or 0)
+    wrong_count = int(row["wrong_count"] or 0)
+    concept_wrong_count = int(row["concept_wrong_count"] or 0)
+    review_stage = int(row["review_stage"] or 0)
+    last_attempt_at = row["last_attempt_at"] or ""
+    due_review = bool(row["next_review_at"] and row["next_review_at"] <= today_iso())
+    recent = is_recent_attempt(last_attempt_at)
+    weakness = max(wrong_count, concept_wrong_count)
+
+    if mode in REVIEW_MODES:
+        bucket = review_bucket(attempt_count, weakness, due_review, recent, row["last_review_result"])
+    elif mode in WEAK_MODES:
+        bucket = weak_bucket(attempt_count, weakness, due_review, recent)
+    else:
+        bucket = default_bucket(attempt_count, weakness, due_review, recent)
+
+    return (
+        bucket,
+        -int(due_review),
+        -weakness,
+        -review_stage,
+        last_attempt_at or "0000-00-00T00:00:00",
+        row["id"],
+    )
+
+
+def default_bucket(attempt_count: int, weakness: int, due_review: bool, recent: bool) -> int:
+    if attempt_count == 0:
+        return 0
+    if recent:
+        return 4
+    if due_review:
+        return 1
+    if weakness > 0:
+        return 2
+    return 3
+
+
+def review_bucket(
+    attempt_count: int,
+    weakness: int,
+    due_review: bool,
+    recent: bool,
+    last_review_result: str,
+) -> int:
+    if due_review and last_review_result != "correct":
+        return 0
+    if weakness > 0 and not recent:
+        return 1
+    if attempt_count == 0:
+        return 2
+    if recent:
+        return 4
+    return 3
+
+
+def weak_bucket(attempt_count: int, weakness: int, due_review: bool, recent: bool) -> int:
+    if weakness > 0 and not recent:
+        return 0
+    if due_review:
+        return 1
+    if attempt_count == 0:
+        return 2
+    if recent:
+        return 4
+    return 3
+
+
+def is_recent_attempt(last_attempt_at: str) -> bool:
+    if not last_attempt_at:
+        return False
+    cutoff = datetime.now() - timedelta(days=RECENT_EXCLUSION_DAYS)
+    try:
+        return datetime.fromisoformat(last_attempt_at) >= cutoff
+    except ValueError:
+        return False
 
 
 def allocate_domain_counts(domains: Iterable[sqlite3.Row], count: int) -> dict[str, int]:
@@ -331,6 +447,7 @@ def repeated_wrong_rows(conn: sqlite3.Connection, exam_id: str, limit: int = 5) 
 
 def schedule_reviews(conn: sqlite3.Connection, session_id: str) -> None:
     next_review = (date.today() + timedelta(days=3)).isoformat()
+    next_correct_review = (date.today() + timedelta(days=7)).isoformat()
     updated_at = now_iso()
     for row in wrong_attempt_rows(conn, session_id):
         conn.execute(
@@ -345,3 +462,28 @@ def schedule_reviews(conn: sqlite3.Connection, session_id: str) -> None:
             """,
             (f"rev-{uuid.uuid4().hex[:12]}", row["question_id"], row["question_id"], next_review, updated_at),
         )
+    for row in correct_review_attempt_rows(conn, session_id):
+        conn.execute(
+            """
+            UPDATE review_queue
+            SET
+              next_review_at = ?,
+              review_stage = review_stage + 1,
+              last_result = 'correct',
+              updated_at = ?
+            WHERE question_id = ?
+            """,
+            (next_correct_review, updated_at, row["question_id"]),
+        )
+
+
+def correct_review_attempt_rows(conn: sqlite3.Connection, session_id: str) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT a.question_id
+        FROM attempts a
+        JOIN review_queue rq ON rq.question_id = a.question_id
+        WHERE a.session_id = ? AND a.is_correct = 1
+        """,
+        (session_id,),
+    ).fetchall()

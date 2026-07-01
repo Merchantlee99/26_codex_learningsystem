@@ -28,6 +28,7 @@ Codex는 아래 역할을 맡는다.
 - 세션 종료 전에는 정답표, 해설, 정답 번호를 공개하지 않는다.
 - 사용자가 즉시 피드백을 명시적으로 요청한 경우를 제외하면, 매 문제마다 정답 여부도 공개하지 않는다.
 - 현재 공개 합성 문제은행으로 출제 가능한 과목은 SQLD, ADsP, 정보처리기사다.
+- 공개 합성 문제은행은 포트폴리오 데모용 1회분 수준이다. 실전 학습은 `private_banks/`로 개인 문제은행을 확장하는 전제를 설명한다.
 - AWS, GCP 과목은 목표 catalog에만 있고 아직 실제 문제은행이 없다. 이 과목을 요청하면 문제를 임의 생성하지 말고 “아직 문제은행이 없어 CBT 세션을 시작할 수 없다”고 말한다.
 - 실제 기출, 족보, 유료 문제집 원문은 공개 repo 문제은행으로 가져오지 않는다. 사용자가 개인 소유 요약/오답 기반 문제은행을 가져오려면 `python3 -m cert_study bank import <path> --private`를 안내한다.
 - 지원 여부가 애매하면 먼저 `list_exams`를 호출한다.
@@ -60,6 +61,8 @@ python3 -m cert_study init
 python3 -m cert_study session start --exam SQLD --count 20
 python3 -m cert_study session start --exam ADSP --count 20
 python3 -m cert_study session start --exam KR_INFO_PROCESSING_ENGINEER --count 20
+python3 -m cert_study session start --exam SQLD --count 10 --mode weak-cbt
+python3 -m cert_study session start --exam SQLD --count 10 --mode review-cbt
 python3 -m cert_study session start --exam SQLD --regular
 python3 -m cert_study session answer <session_id> <1-4>
 python3 -m cert_study session current <session_id>
@@ -86,26 +89,30 @@ python3 -m cert_study notion plan <session_id>
 
    - `SQLD 정규 모의고사` -> 정규 세션 시작
    - `SQLD 20문제` -> 20문제 커스텀 세션 시작
+   - `SQLD 약점 세트`, `자주 틀린 개념 위주` -> `mode: weak-cbt`
+   - `SQLD 복습 세트`, `오답 다시 풀기` -> `mode: review-cbt`
    - 문제 수가 없으면 기본값 20문제
 
-4. 문제는 한 번에 하나만 보여준다.
+4. 기본 `custom-cbt` 세션은 미풀이 문제를 먼저 고른다. 같은 문제를 외우지 않도록 최근에 푼 문제는 뒤로 밀린다.
 
-5. 사용자가 숫자로 답하면 `submit_answer`를 호출하거나 아래 명령을 실행한다.
+5. 문제는 한 번에 하나만 보여준다.
+
+6. 사용자가 숫자로 답하면 `submit_answer`를 호출하거나 아래 명령을 실행한다.
 
    ```bash
    python3 -m cert_study session answer <session_id> <answer>
    ```
 
-6. 사용자가 즉시 피드백을 원하지 않는 한, 매 문제마다 정답 여부를 공개하지 않는다.
+7. 사용자가 즉시 피드백을 원하지 않는 한, 매 문제마다 정답 여부를 공개하지 않는다.
 
-7. 모든 문제에 답하면 `finish_session`을 호출하거나 아래 명령을 실행한다.
+8. 모든 문제에 답하면 `finish_session`을 호출하거나 아래 명령을 실행한다.
 
    ```bash
    python3 -m cert_study session finish <session_id>
    ```
 
-8. 채팅에 리포트를 요약하고 로컬 리포트 경로를 알려준다.
-9. 생성된 Obsidian 세션 노트와 복습 큐 경로도 함께 알려준다.
+9. 채팅에 리포트를 요약하고 로컬 리포트 경로를 알려준다.
+10. 생성된 Obsidian 세션 노트와 복습 큐 경로도 함께 알려준다.
 
 ## 최종 리포트에 반드시 포함할 것
 

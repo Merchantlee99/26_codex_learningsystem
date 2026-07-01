@@ -46,6 +46,12 @@ TOOLS: list[dict[str, Any]] = [
                 "exam": {"type": "string", "default": "SQLD"},
                 "count": {"type": "integer", "minimum": 1},
                 "regular": {"type": "boolean", "default": False},
+                "mode": {
+                    "type": "string",
+                    "enum": ["custom-cbt", "review-cbt", "weak-cbt"],
+                    "default": "custom-cbt",
+                    "description": "custom-cbt는 미풀이 우선, review-cbt는 복습 예정/오답 우선, weak-cbt는 취약 개념 우선입니다.",
+                },
                 "seed": {"type": "integer"},
             },
             "additionalProperties": False,
@@ -112,7 +118,7 @@ def handle_message(message: dict[str, Any]) -> dict[str, Any] | None:
             {
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "cert-study", "version": "0.3.0"},
+                "serverInfo": {"name": "cert-study", "version": "0.3.1"},
             },
         )
     if method == "tools/list":
@@ -138,16 +144,39 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     if name == "list_exams":
         with ready_conn() as conn:
             supported = [
-                {"id": row["id"], "name": row["name"], "status": "available"}
-                for row in conn.execute("SELECT id, name FROM exams ORDER BY id").fetchall()
+                {
+                    "id": row["id"],
+                    "name": row["name"],
+                    "status": "available",
+                    "available_questions": row["available_questions"],
+                    "official_question_count": row["official_question_count"],
+                    "bank_rounds": row["bank_rounds"],
+                }
+                for row in conn.execute(
+                    """
+                    SELECT
+                      e.id,
+                      e.name,
+                      e.official_question_count,
+                      COUNT(q.id) AS available_questions,
+                      ROUND(COUNT(q.id) * 1.0 / e.official_question_count, 2) AS bank_rounds
+                    FROM exams e
+                    LEFT JOIN questions q ON q.exam_id = e.id
+                    GROUP BY e.id, e.name, e.official_question_count
+                    ORDER BY e.id
+                    """
+                ).fetchall()
             ]
         payload = {
             "available": supported,
             "planned": PLANNED_EXAMS,
-            "note": "현재 CBT 세션으로 실제 출제 가능한 문제은행은 available 항목뿐입니다.",
+            "note": "현재 CBT 세션으로 실제 출제 가능한 문제은행은 available 항목뿐입니다. 공개 seed는 데모 1회분 수준이며, 실전 학습은 private_banks import로 확장합니다.",
         }
         lines = ["현재 실제 출제 가능한 과목:"]
-        lines.extend(f"- {row['id']}: {row['name']}" for row in supported)
+        lines.extend(
+            f"- {row['id']}: {row['name']} ({row['available_questions']}문항, {row['bank_rounds']:g}회분)"
+            for row in supported
+        )
         lines.append("")
         lines.append("계획 단계 과목:")
         lines.extend(f"- {row['id']}: {row['name']}" for row in PLANNED_EXAMS)
@@ -156,11 +185,12 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     if name == "start_session":
         with ready_conn() as conn:
             regular = bool(arguments.get("regular", False))
+            mode = str(arguments.get("mode", "custom-cbt"))
             view = create_session(
                 conn,
                 exam_id=arguments.get("exam", "SQLD"),
                 count=None if regular else arguments.get("count", 20),
-                mode="regular-mock" if regular else "custom-cbt",
+                mode="regular-mock" if regular else mode,
                 seed=arguments.get("seed"),
             )
         return text_result(f"session_id: {view.session_id}\n\n{render_question(view)}", {"session_id": view.session_id})
