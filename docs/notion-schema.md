@@ -1,43 +1,43 @@
-# Notion Schema
+# Notion 스키마
 
-Use Notion only as an optional database view, not the source of truth. SQLite remains the canonical study record, and Obsidian Markdown is the default readable notebook.
+Notion은 선택 기능입니다. 원장은 Notion이 아니라 SQLite입니다. 사람이 읽는 기본 노트도 Obsidian Markdown입니다.
 
-The public plugin default is disabled. It only prepares a Notion sync plan until the user chooses target databases and enables:
+공개 플러그인 기본값에서는 Notion 쓰기가 꺼져 있습니다. 사용자가 대상 DB를 고르고 아래 환경변수를 켜기 전까지는 동기화 계획만 만듭니다.
 
 ```bash
 export CERT_STUDY_ENABLE_NOTION_SYNC=1
 ```
 
-## Database 1: Study Sessions
+## DB 1: 학습 세션
 
-One row per CBT session.
+CBT 세션 하나를 row 하나로 저장합니다.
 
-Recommended properties:
+권장 속성:
 
 ```text
-Name                 title
-Exam                 select
-Mode                 select
-Date                 date
-Total                number
-Correct              number
-Score                number
-Pass Line            number
-Judgement            select
-Weak Concepts        multi_select
-Next Review          date
-Local Session ID     rich_text
-Report Path          rich_text
+이름                 title
+시험                 select
+모드                 select
+날짜                 date
+전체 문항            number
+정답 수              number
+점수                 number
+합격선               number
+판정                 select
+취약 개념            multi_select
+다음 복습            date
+로컬 세션 ID         rich_text
+리포트 경로          rich_text
 ```
 
-Recommended page title:
+권장 페이지 제목:
 
 ```text
 YYYY-MM-DD SQLD 20문제 CBT
 YYYY-MM-DD SQLD 정규 모의고사
 ```
 
-Recommended page body:
+권장 페이지 본문:
 
 ```markdown
 ## 결과 요약
@@ -69,30 +69,30 @@ Recommended page body:
 - 2026-07-04: 오늘 틀린 문제 재시험
 ```
 
-## Database 2: Wrong Questions
+## DB 2: 틀린 문제
 
-One row per wrong attempt.
+틀린 시도 하나를 row 하나로 저장합니다.
 
-Recommended properties:
+권장 속성:
 
 ```text
-Name                 title
-Exam                 select
-Session              relation -> Study Sessions
-Domain               select
-Concept              select or multi_select
-Attempt Date         date
-Question ID          rich_text
-Position             number
-My Answer            rich_text
-Correct Answer       rich_text
-Mistake Type         select
-Review Status        select
-Next Review          date
-Local Session ID     rich_text
+이름                 title
+시험                 select
+세션                 relation -> 학습 세션
+영역                 select
+개념                 select or multi_select
+풀이 날짜            date
+문제 ID              rich_text
+문항 번호            number
+내 답                rich_text
+정답                 rich_text
+실수 유형            select
+복습 상태            select
+다음 복습            date
+로컬 세션 ID         rich_text
 ```
 
-Recommended `Review Status` values:
+권장 `복습 상태` 값:
 
 ```text
 예정
@@ -101,24 +101,24 @@ Recommended `Review Status` values:
 해결
 ```
 
-## Database 3: Concept Reviews
+## DB 3: 개념 복습
 
-One row per concept that needs review.
+복습이 필요한 개념 하나를 row 하나로 저장합니다.
 
-Recommended properties:
+권장 속성:
 
 ```text
-Name                 title
-Exam                 select
-Domain               select
-Wrong Count          number
-Last Wrong Date      date
-Next Review          date
-Status               select
-Review Note          rich_text
+이름                 title
+시험                 select
+영역                 select
+누적 오답 수         number
+최근 오답일          date
+다음 복습            date
+상태                 select
+복습 메모            rich_text
 ```
 
-Recommended `Status` values:
+권장 `상태` 값:
 
 ```text
 대기
@@ -127,15 +127,15 @@ Recommended `Status` values:
 강화 필요
 ```
 
-## Sync Rule
+## 동기화 규칙
 
-At session finish:
+세션 종료 후 흐름은 아래처럼 둡니다.
 
-1. Generate a sync plan with `prepare_notion_sync` or `python3 -m cert_study notion plan <session_id>`.
-2. If the plan status is `disabled_public_default`, show it to the user and do not write to Notion.
-3. After the user selects databases and enables sync, create one `Study Sessions` page.
-4. Append the Markdown report to the page body.
-5. Create one `Wrong Questions` row for each wrong question.
-6. Create or update `Concept Reviews` for repeated weak concepts.
+1. `prepare_notion_sync` 또는 `python3 -m cert_study notion plan <session_id>`로 동기화 계획을 생성합니다.
+2. 계획 상태가 `disabled_public_default`라면 사용자에게 보여주기만 하고 Notion에는 쓰지 않습니다.
+3. 사용자가 DB를 고르고 동기화를 켠 뒤에만 `학습 세션` 페이지 하나를 만듭니다.
+4. Markdown 리포트를 페이지 본문에 붙입니다.
+5. 틀린 문제마다 `틀린 문제` row를 하나씩 만듭니다.
+6. 반복 취약 개념은 `개념 복습` row를 만들거나 갱신합니다.
 
-Do not make Notion calculate scoring. Keep scoring in SQLite and export final values to Notion.
+Notion이 점수를 계산하게 만들지 않습니다. 채점은 SQLite에서 끝내고, 최종 값만 Notion에 내보냅니다.

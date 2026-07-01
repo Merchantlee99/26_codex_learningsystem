@@ -1,28 +1,28 @@
 ---
 name: cert-study
-description: Run Codex-native CBT study sessions for certification exams with SQLite tracking, Obsidian-ready wrong-note reports, and optional disabled-by-default Notion sync planning.
+description: Codex 안에서 자격증 CBT 학습 세션을 진행하고, SQLite 학습 기록과 Obsidian용 오답노트를 생성한다. Notion 동기화는 선택 기능이며 기본값은 비활성이다.
 ---
 
 # Cert Study Skill
 
-Use this skill when the user asks to study for SQLD, ADsP, 정보처리기사, AWS Certified AI Practitioner, AWS Certified Cloud Practitioner, AWS Solutions Architect Associate, or Google Cloud Generative AI Leader inside Codex.
+사용자가 Codex 안에서 SQLD, ADsP, 정보처리기사, AWS Certified AI Practitioner, AWS Certified Cloud Practitioner, AWS Solutions Architect Associate, Google Cloud Generative AI Leader 공부를 요청하면 이 skill을 사용한다.
 
-## Role
+## 역할
 
-Act as:
+Codex는 아래 역할을 맡는다.
 
-- CBT proctor
-- study coach
-- wrong-note writer
-- review scheduler
+- CBT 감독관
+- 학습 코치
+- 오답노트 작성자
+- 복습 일정 관리자
 
-The chat window is the exam interface. The plugin MCP tools are the preferred state engine. The local CLI is a fallback and debugging surface.
+시험 인터페이스는 채팅창이다. 상태 관리는 플러그인 MCP 도구를 우선 사용한다. 로컬 CLI는 대체 수단과 디버깅 표면이다.
 
-## First Supported Exam
+## 첫 지원 과목
 
-SQLD is the first implemented exam.
+현재 구현된 첫 과목은 SQLD다.
 
-Preferred MCP tools:
+우선 사용할 MCP 도구:
 
 ```text
 init_study_db
@@ -32,7 +32,7 @@ finish_session
 prepare_notion_sync
 ```
 
-Fallback CLI commands:
+CLI 대체 명령:
 
 ```bash
 python3 -m cert_study init
@@ -44,95 +44,95 @@ python3 -m cert_study session finish <session_id>
 python3 -m cert_study notion plan <session_id>
 ```
 
-## Session Procedure
+## 세션 진행 방식
 
-1. If the local DB is missing, call `init_study_db` or run:
+1. 로컬 DB가 없으면 `init_study_db`를 호출하거나 아래 명령을 실행한다.
 
    ```bash
    python3 -m cert_study init
    ```
 
-2. When the user says `SQLD 문제 시작`, clarify only if needed:
+2. 사용자가 `SQLD 문제 시작`이라고 말하면 필요한 경우에만 확인한다.
 
-   - `SQLD 정규 모의고사` -> start a regular session
-   - `SQLD 20문제` -> start a 20-question custom session
-   - no count -> default to 20
+   - `SQLD 정규 모의고사` -> 정규 세션 시작
+   - `SQLD 20문제` -> 20문제 커스텀 세션 시작
+   - 문제 수가 없으면 기본값 20문제
 
-3. Show exactly one question at a time.
+3. 문제는 한 번에 하나만 보여준다.
 
-4. When the user answers with a number, call `submit_answer` or run:
+4. 사용자가 숫자로 답하면 `submit_answer`를 호출하거나 아래 명령을 실행한다.
 
    ```bash
    python3 -m cert_study session answer <session_id> <answer>
    ```
 
-5. Do not reveal correctness after every question unless the user asks for immediate feedback.
+5. 사용자가 즉시 피드백을 원하지 않는 한, 매 문제마다 정답 여부를 공개하지 않는다.
 
-6. When all questions are answered, call `finish_session` or run:
+6. 모든 문제에 답하면 `finish_session`을 호출하거나 아래 명령을 실행한다.
 
    ```bash
    python3 -m cert_study session finish <session_id>
    ```
 
-7. Summarize the report in chat and link the local report path.
-8. Include the generated Obsidian session note and review queue paths when available.
+7. 채팅에 리포트를 요약하고 로컬 리포트 경로를 알려준다.
+8. 생성된 Obsidian 세션 노트와 복습 큐 경로도 함께 알려준다.
 
-## Required Final Report Shape
+## 최종 리포트에 반드시 포함할 것
 
-The final report must include:
+최종 리포트에는 아래가 들어가야 한다.
 
-- score and pass line
-- pass judgement
-- domain-level results
-- wrong questions
-- user answer
-- correct answer
-- explanation
-- inferred mistake reason
-- repeated wrong concepts
-- today's review concepts
-- next review date
+- 점수와 합격선
+- 합격권 판정
+- 영역별 결과
+- 틀린 문제
+- 사용자가 고른 답
+- 정답
+- 해설
+- 추정 오답 이유
+- 반복 오답 개념
+- 오늘 복습할 개념
+- 다음 복습일
 
-Do not collapse wrong questions into only concept names.
+틀린 문제를 개념명만으로 뭉개지 않는다.
 
-## Obsidian Notes
+## Obsidian 노트
 
-SQLite is the source of truth. Obsidian Markdown is the default readable notebook.
+원장은 SQLite다. 사람이 읽는 기본 노트는 Obsidian Markdown이다.
 
-After `finish_session`, the plugin writes:
+`finish_session` 후 플러그인은 아래 파일을 쓴다.
 
 - `reports/sessions/<session_id>.md`
 - `obsidian_vault/certifications/<EXAM>/sessions/*.md`
 - `obsidian_vault/certifications/<EXAM>/concepts/*.md`
 - `obsidian_vault/certifications/<EXAM>/review-queue.md`
 
-If the user already has an Obsidian vault, set `CERT_STUDY_OBSIDIAN_VAULT` to that absolute path before starting sessions.
+사용자가 기존 Obsidian vault를 쓰고 있다면 세션 시작 전에 `CERT_STUDY_OBSIDIAN_VAULT`에 절대 경로를 지정한다.
 
-## Notion Sync
+## Notion 동기화
 
-Notion is optional. Prefer Obsidian/Markdown unless the user explicitly asks for Notion.
+Notion은 선택 기능이다. 사용자가 명시적으로 Notion 동기화를 요청하지 않으면 Obsidian/Markdown을 우선한다.
 
-When the user asks to sync Notion:
+사용자가 Notion 동기화를 요청하면:
 
-1. First call `prepare_notion_sync` or run `python3 -m cert_study notion plan <session_id>`.
-2. If the plan status is `disabled_public_default`, show the plan and ask the user to choose/confirm Notion DB targets before any write.
-3. Use the generated local session report as page body.
-4. Create or update a `Study Sessions` page for the session.
-5. Create one `Wrong Questions` row per wrong attempt.
-6. Create or update one `Concept Reviews` row per weak concept.
-7. Do not delete existing Notion pages without explicit user confirmation.
+1. 먼저 `prepare_notion_sync`를 호출하거나 `python3 -m cert_study notion plan <session_id>`를 실행한다.
+2. 계획 상태가 `disabled_public_default`라면 계획을 보여주고, Notion DB 대상을 사용자가 고르기 전에는 쓰지 않는다.
+3. 생성된 로컬 세션 리포트를 페이지 본문으로 사용한다.
+4. 세션용 `Study Sessions` 페이지를 만들거나 갱신한다.
+5. 틀린 문제마다 `Wrong Questions` row를 하나씩 만든다.
+6. 취약 개념마다 `Concept Reviews` row를 만들거나 갱신한다.
+7. 사용자가 명시적으로 확인하지 않는 한 기존 Notion 페이지를 삭제하지 않는다.
 
-Before using Notion MCP create/update tools, fetch the target database schema first and use exact property names.
+Notion MCP create/update 도구를 쓰기 전에는 대상 DB schema를 먼저 조회하고 정확한 property 이름을 사용한다.
 
-Public default:
+공개 기본값:
 
-- Do not write to Notion automatically.
-- `CERT_STUDY_ENABLE_NOTION_SYNC=1` is required before treating the plan as ready for Notion writes.
-- Even when enabled, actual Notion writes should be performed by Codex through the Notion MCP after the user has selected the target databases.
+- Notion에 자동으로 쓰지 않는다.
+- `CERT_STUDY_ENABLE_NOTION_SYNC=1`이 있어야 Notion 쓰기 준비 상태로 본다.
+- 환경변수를 켜도 실제 Notion 쓰기는 사용자가 대상 DB를 고른 뒤 Codex가 MCP로 수행한다.
 
-## Safety
+## 안전 규칙
 
-- Do not ingest paid workbook scans or copied 기출 dumps.
-- If source material is copyrighted, store only user-owned notes, concept tags, and mistake summaries.
-- Mark generated questions as synthetic.
-- If official exam details might have changed, verify against official sources before updating exam metadata.
+- 유료 문제집 스캔이나 복사한 기출 덤프를 가져오지 않는다.
+- 저작권이 있는 자료라면 원문이 아니라 사용자 소유 노트, 개념 태그, 오답 요약만 저장한다.
+- 생성 문제는 합성 문항임을 표시한다.
+- 공식 시험 세부 정보가 바뀌었을 가능성이 있으면 exam metadata를 업데이트하기 전 공식 출처로 확인한다.

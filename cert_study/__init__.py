@@ -1,3 +1,3 @@
-"""Codex-native certification study system."""
+"""Codex 기반 자격증 학습 시스템."""
 
 __version__ = "0.2.0"

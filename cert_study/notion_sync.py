@@ -57,8 +57,8 @@ def prepare_notion_sync_plan(conn: sqlite3.Connection, session_id: str) -> dict[
         },
         "actions": build_actions(session, wrongs, repeated, report_path),
         "public_default_note": (
-            "Notion writes are disabled by default for the public plugin. "
-            "The user should choose or configure Notion databases before enabling writes."
+            "공개 플러그인에서는 Notion 쓰기가 기본 비활성입니다. "
+            "사용자가 Notion DB를 고르거나 설정한 뒤에만 쓰기를 켜야 합니다."
         ),
     }
 
@@ -123,4 +123,3 @@ def build_actions(
 
 def render_plan(plan: dict[str, Any]) -> str:
     return json.dumps(plan, ensure_ascii=False, indent=2)
-

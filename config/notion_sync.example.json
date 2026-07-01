@@ -2,20 +2,19 @@
   "enabled": false,
   "mode": "agent-mediated",
   "study_sessions_database": {
-    "name": "Study Sessions",
+    "name": "학습 세션",
     "data_source_id": ""
   },
   "wrong_questions_database": {
-    "name": "Wrong Questions",
+    "name": "틀린 문제",
     "data_source_id": ""
   },
   "concept_reviews_database": {
-    "name": "Concept Reviews",
+    "name": "개념 복습",
     "data_source_id": ""
   },
   "notes": [
-    "Public default is disabled. Set CERT_STUDY_ENABLE_NOTION_SYNC=1 only in a private/local environment.",
-    "The local plugin prepares the sync plan. Codex should perform actual Notion MCP writes after the user chooses the target databases."
+    "공개 기본값은 비활성입니다. 개인/로컬 환경에서만 CERT_STUDY_ENABLE_NOTION_SYNC=1을 설정하세요.",
+    "로컬 플러그인은 동기화 계획만 준비합니다. 실제 Notion MCP 쓰기는 사용자가 대상 DB를 고른 뒤 Codex가 수행합니다."
   ]
 }
-

@@ -23,49 +23,49 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="cert-study", description="Codex-native certification CBT study system.")
+    parser = argparse.ArgumentParser(prog="cert-study", description="Codex 기반 자격증 CBT 학습 시스템.")
     sub = parser.add_subparsers(required=True)
 
-    init = sub.add_parser("init", help="Initialize SQLite DB and seed SQLD training data.")
-    init.add_argument("--reset", action="store_true", help="Remove existing local DB before initialization.")
+    init = sub.add_parser("init", help="SQLite DB를 초기화하고 SQLD 훈련 데이터를 seed합니다.")
+    init.add_argument("--reset", action="store_true", help="초기화 전에 기존 로컬 DB를 삭제합니다.")
     init.set_defaults(func=cmd_init)
 
-    stats = sub.add_parser("stats", help="Show question-bank stats.")
+    stats = sub.add_parser("stats", help="문제은행 통계를 보여줍니다.")
     stats.set_defaults(func=cmd_stats)
 
-    session = sub.add_parser("session", help="Manage CBT sessions.")
+    session = sub.add_parser("session", help="CBT 세션을 관리합니다.")
     session_sub = session.add_subparsers(required=True)
 
-    start = session_sub.add_parser("start", help="Start a CBT session.")
+    start = session_sub.add_parser("start", help="CBT 세션을 시작합니다.")
     start.add_argument("--exam", default="SQLD")
     start.add_argument("--count", type=int)
-    start.add_argument("--regular", action="store_true", help="Use official question count for the exam.")
+    start.add_argument("--regular", action="store_true", help="시험의 정규 문항 수를 사용합니다.")
     start.add_argument("--mode", default="custom-cbt")
-    start.add_argument("--seed", type=int, help="Deterministic question selection seed.")
+    start.add_argument("--seed", type=int, help="문항 선택을 재현하기 위한 seed입니다.")
     start.set_defaults(func=cmd_session_start)
 
-    answer = session_sub.add_parser("answer", help="Submit an answer for the next unanswered question.")
+    answer = session_sub.add_parser("answer", help="다음 미응답 문제에 답을 제출합니다.")
     answer.add_argument("session_id")
     answer.add_argument("answer", type=int)
     answer.set_defaults(func=cmd_session_answer)
 
-    current = session_sub.add_parser("current", help="Show the next unanswered question.")
+    current = session_sub.add_parser("current", help="다음 미응답 문제를 보여줍니다.")
     current.add_argument("session_id")
     current.set_defaults(func=cmd_session_current)
 
-    finish = session_sub.add_parser("finish", help="Finish a session and write reports.")
+    finish = session_sub.add_parser("finish", help="세션을 종료하고 리포트를 작성합니다.")
     finish.add_argument("session_id")
     finish.add_argument("--allow-incomplete", action="store_true")
     finish.set_defaults(func=cmd_session_finish)
 
-    report = sub.add_parser("report", help="Render an existing session report.")
+    report = sub.add_parser("report", help="기존 세션 리포트를 렌더링합니다.")
     report.add_argument("session_id")
     report.set_defaults(func=cmd_report)
 
-    notion = sub.add_parser("notion", help="Prepare disabled-by-default Notion sync plans.")
+    notion = sub.add_parser("notion", help="기본 비활성 Notion 동기화 계획을 준비합니다.")
     notion_sub = notion.add_subparsers(required=True)
 
-    notion_plan = notion_sub.add_parser("plan", help="Prepare a Notion sync plan for a finished session.")
+    notion_plan = notion_sub.add_parser("plan", help="완료된 세션의 Notion 동기화 계획을 만듭니다.")
     notion_plan.add_argument("session_id")
     notion_plan.set_defaults(func=cmd_notion_plan)
 
@@ -78,7 +78,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     with connect() as conn:
         initialize(conn)
         seed_sqld(conn)
-    print(f"initialized: {db_path()}")
+    print(f"초기화 완료: {db_path()}")
     return 0
 
 
@@ -95,7 +95,7 @@ def cmd_stats(args: argparse.Namespace) -> int:
             """
         ).fetchall()
     for row in rows:
-        print(f"{row['exam']} | {row['domain']} | {row['questions']} questions")
+        print(f"{row['exam']} | {row['domain']} | {row['questions']}문항")
     return 0
 
 
@@ -117,7 +117,7 @@ def cmd_session_start(args: argparse.Namespace) -> int:
 def cmd_session_answer(args: argparse.Namespace) -> int:
     with ready_conn() as conn:
         _is_correct, next_view = submit_answer(conn, args.session_id, args.answer)
-    print("answer recorded")
+    print("답변을 기록했습니다.")
     print("")
     if next_view is None:
         print("모든 문제에 답했습니다. 결과를 보려면 다음 명령을 실행하세요.")
@@ -131,7 +131,7 @@ def cmd_session_current(args: argparse.Namespace) -> int:
     with ready_conn() as conn:
         view = get_next_unanswered(conn, args.session_id)
     if view is None:
-        print("no unanswered questions")
+        print("미응답 문제가 없습니다.")
         return 0
     print(render_question(view))
     return 0
@@ -164,5 +164,5 @@ def cmd_notion_plan(args: argparse.Namespace) -> int:
 
 def ready_conn():
     if not Path(db_path()).exists():
-        raise ValueError("database is missing. Run: python -m cert_study init")
+        raise ValueError("database가 없습니다. 먼저 실행하세요: python -m cert_study init")
     return connect()

@@ -57,7 +57,7 @@ def q(
         "explanation": explanation,
         "difficulty": difficulty,
         "source_type": "synthetic",
-        "source_ref": "Original training question generated for concept practice; not copied from a commercial question bank.",
+        "source_ref": "개념 연습용으로 만든 합성 훈련 문항이며 상업 문제은행에서 복사하지 않았습니다.",
     }
 
 
@@ -141,4 +141,3 @@ def seed(conn: sqlite3.Connection) -> None:
         QUESTIONS,
     )
     conn.commit()
-

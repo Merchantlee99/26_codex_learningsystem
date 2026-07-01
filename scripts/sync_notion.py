@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Prepare a disabled-by-default Notion sync plan for a finished session.
+"""완료된 세션의 Notion 동기화 계획을 만든다.
 
-The Codex runtime should perform the actual Notion MCP write because MCP tools
-are available to the agent, not to this local Python process.
+이 스크립트는 실제 Notion 쓰기를 하지 않는다. Notion MCP 도구는 로컬 Python
+프로세스가 아니라 Codex agent 쪽에서 사용할 수 있기 때문이다.
 """
 
 from __future__ import annotations

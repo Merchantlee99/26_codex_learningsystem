@@ -17,12 +17,12 @@ PROTOCOL_VERSION = "2024-11-05"
 TOOLS: list[dict[str, Any]] = [
     {
         "name": "init_study_db",
-        "description": "Initialize the local SQLite study database and seed SQLD synthetic training questions.",
+        "description": "로컬 SQLite 학습 DB를 초기화하고 SQLD 합성 훈련 문항을 seed한다.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     },
     {
         "name": "start_session",
-        "description": "Start a CBT-style certification study session and return the first question.",
+        "description": "CBT 방식 자격증 학습 세션을 시작하고 첫 문제를 반환한다.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -36,7 +36,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "submit_answer",
-        "description": "Submit a 1-4 answer for the current session and return the next question when available.",
+        "description": "현재 세션에 1~4번 답변을 제출하고 다음 문제가 있으면 반환한다.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -49,7 +49,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "finish_session",
-        "description": "Finish a completed session, write reports, and return the detailed result report.",
+        "description": "완료된 세션을 종료하고 리포트를 쓴 뒤 상세 결과를 반환한다.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -63,7 +63,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "prepare_notion_sync",
-        "description": "Prepare a disabled-by-default Notion sync plan for a finished session.",
+        "description": "완료된 세션의 Notion 동기화 계획을 만든다. 기본값은 실제 쓰기 비활성이다.",
         "inputSchema": {
             "type": "object",
             "properties": {"session_id": {"type": "string"}},
@@ -106,7 +106,7 @@ def handle_message(message: dict[str, Any]) -> dict[str, Any] | None:
         arguments = params.get("arguments") or {}
         try:
             return result(message, call_tool(name, arguments))
-        except Exception as exc:  # MCP tool errors should be visible to the caller.
+        except Exception as exc:  # MCP 도구 오류는 호출자에게 보여야 한다.
             return result(message, {"content": [{"type": "text", "text": f"error: {exc}"}], "isError": True})
     return error(message, -32601, f"method not found: {method}")
 
@@ -116,7 +116,7 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         with connect() as conn:
             initialize(conn)
             seed_sqld(conn)
-        return text_result("initialized local study database")
+        return text_result("로컬 학습 DB를 초기화했습니다.")
 
     if name == "start_session":
         with ready_conn() as conn:
@@ -135,10 +135,10 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
             _correct, next_view = submit_answer(conn, arguments["session_id"], int(arguments["answer"]))
         if next_view is None:
             return text_result(
-                "answer recorded\n\n모든 문제에 답했습니다. finish_session을 호출해 결과를 생성하세요.",
+                "답변을 기록했습니다.\n\n모든 문제에 답했습니다. finish_session을 호출해 결과를 생성하세요.",
                 {"done": True},
             )
-        return text_result(f"answer recorded\n\n{render_question(next_view)}", {"done": False})
+        return text_result(f"답변을 기록했습니다.\n\n{render_question(next_view)}", {"done": False})
 
     if name == "finish_session":
         with ready_conn() as conn:
@@ -154,7 +154,7 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
             f"\nobsidian_review_queue: {outputs['obsidian']['review_queue']}"
         )
         if sync_plan is not None:
-            text += "\n\n## Notion Sync Plan\n" + render_plan(sync_plan)
+            text += "\n\n## Notion 동기화 계획\n" + render_plan(sync_plan)
         return text_result(
             text,
             {
@@ -169,7 +169,7 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
             plan = prepare_notion_sync_plan(conn, arguments["session_id"])
         return text_result(render_plan(plan), plan)
 
-    raise ValueError(f"unknown tool: {name}")
+    raise ValueError(f"알 수 없는 도구입니다: {name}")
 
 
 def ready_conn():
