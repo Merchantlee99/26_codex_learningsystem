@@ -27,13 +27,20 @@ Codex는 아래 역할을 맡는다.
 - 세션 중에는 한 번에 한 문제만 보여준다.
 - 세션 종료 전에는 정답표, 해설, 정답 번호를 공개하지 않는다.
 - 사용자가 즉시 피드백을 명시적으로 요청한 경우를 제외하면, 매 문제마다 정답 여부도 공개하지 않는다.
-- 현재 실제 문제은행으로 출제 가능한 과목은 SQLD뿐이다.
-- ADsP, 정보처리기사, AWS, GCP 과목은 목표 catalog에만 있고 아직 실제 문제은행이 없다. 이 과목을 요청하면 문제를 임의 생성하지 말고 “아직 문제은행이 없어 CBT 세션을 시작할 수 없다”고 말한다.
+- 현재 공개 합성 문제은행으로 출제 가능한 과목은 SQLD, ADsP, 정보처리기사다.
+- AWS, GCP 과목은 목표 catalog에만 있고 아직 실제 문제은행이 없다. 이 과목을 요청하면 문제를 임의 생성하지 말고 “아직 문제은행이 없어 CBT 세션을 시작할 수 없다”고 말한다.
+- 실제 기출, 족보, 유료 문제집 원문은 공개 repo 문제은행으로 가져오지 않는다. 사용자가 개인 소유 요약/오답 기반 문제은행을 가져오려면 `python3 -m cert_study bank import <path> --private`를 안내한다.
 - 지원 여부가 애매하면 먼저 `list_exams`를 호출한다.
 
-## 첫 지원 과목
+## 지원 과목
 
-현재 구현된 첫 과목은 SQLD다.
+현재 구현된 공개 합성 문제은행은 아래 세 과목이다.
+
+```text
+SQLD
+ADSP
+KR_INFO_PROCESSING_ENGINEER
+```
 
 우선 사용할 MCP 도구:
 
@@ -51,10 +58,13 @@ CLI 대체 명령:
 ```bash
 python3 -m cert_study init
 python3 -m cert_study session start --exam SQLD --count 20
+python3 -m cert_study session start --exam ADSP --count 20
+python3 -m cert_study session start --exam KR_INFO_PROCESSING_ENGINEER --count 20
 python3 -m cert_study session start --exam SQLD --regular
 python3 -m cert_study session answer <session_id> <1-4>
 python3 -m cert_study session current <session_id>
 python3 -m cert_study session finish <session_id>
+python3 -m cert_study bank import private_banks/my-bank.json --private
 python3 -m cert_study notion plan <session_id>
 ```
 
@@ -69,10 +79,10 @@ python3 -m cert_study notion plan <session_id>
 2. 사용자가 문제 풀이를 요청하면 먼저 과목이 실제 지원되는지 판단한다.
 
    - 지원 여부가 애매하면 `list_exams`를 호출한다.
-   - 현재 실제 CBT 출제 가능 과목은 `SQLD`다.
-   - `AWS Certified AI Practitioner`, `ADsP`, `정보처리기사`, `Google Cloud Generative AI Leader` 등 아직 bank가 없는 과목은 임의로 문제를 만들지 않는다.
+   - 현재 실제 CBT 출제 가능 과목은 `SQLD`, `ADSP`, `KR_INFO_PROCESSING_ENGINEER`다.
+   - `AWS Certified AI Practitioner`, `Google Cloud Generative AI Leader` 등 아직 bank가 없는 과목은 임의로 문제를 만들지 않는다.
 
-3. 사용자가 `SQLD 문제 시작`, `SQLD 문제 5개 줘`, `SQLD 시험 문제 내줘`라고 말하면 필요한 경우에만 확인한다.
+3. 사용자가 `SQLD 문제 시작`, `ADsP 문제 5개 줘`, `정보처리기사 시험 문제 내줘`라고 말하면 필요한 경우에만 확인한다.
 
    - `SQLD 정규 모의고사` -> 정규 세션 시작
    - `SQLD 20문제` -> 20문제 커스텀 세션 시작

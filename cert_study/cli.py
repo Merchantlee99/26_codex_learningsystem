@@ -6,10 +6,11 @@ from pathlib import Path
 
 from .db import connect, initialize
 from .engine import create_session, finish_session, get_next_unanswered, submit_answer
+from .importer import import_bank_file
 from .notion_sync import prepare_notion_sync_plan, render_plan
 from .paths import db_path
 from .reporting import render_question, render_session_report, write_study_outputs
-from .seed_sqld import seed as seed_sqld
+from .seed_public import seed_public_banks
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -26,12 +27,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="cert-study", description="Codex 기반 자격증 CBT 학습 시스템.")
     sub = parser.add_subparsers(required=True)
 
-    init = sub.add_parser("init", help="SQLite DB를 초기화하고 SQLD 훈련 데이터를 seed합니다.")
+    init = sub.add_parser("init", help="SQLite DB를 초기화하고 공개 합성 훈련 문제은행을 seed합니다.")
     init.add_argument("--reset", action="store_true", help="초기화 전에 기존 로컬 DB를 삭제합니다.")
     init.set_defaults(func=cmd_init)
 
     stats = sub.add_parser("stats", help="문제은행 통계를 보여줍니다.")
     stats.set_defaults(func=cmd_stats)
+
+    bank = sub.add_parser("bank", help="개인 문제은행 import를 관리합니다.")
+    bank_sub = bank.add_subparsers(required=True)
+
+    bank_import = bank_sub.add_parser("import", help="JSON/YAML 문제은행 파일을 로컬 SQLite에 가져옵니다.")
+    bank_import.add_argument("path", type=Path)
+    bank_import.add_argument("--private", action="store_true", help="개인 소유 요약/오답 기반 문제은행 import를 허용합니다.")
+    bank_import.set_defaults(func=cmd_bank_import)
 
     session = sub.add_parser("session", help="CBT 세션을 관리합니다.")
     session_sub = session.add_subparsers(required=True)
@@ -77,7 +86,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         db_path().unlink()
     with connect() as conn:
         initialize(conn)
-        seed_sqld(conn)
+        seed_public_banks(conn)
     print(f"초기화 완료: {db_path()}")
     return 0
 
@@ -96,6 +105,16 @@ def cmd_stats(args: argparse.Namespace) -> int:
         ).fetchall()
     for row in rows:
         print(f"{row['exam']} | {row['domain']} | {row['questions']}문항")
+    return 0
+
+
+def cmd_bank_import(args: argparse.Namespace) -> int:
+    with ready_conn() as conn:
+        result = import_bank_file(conn, args.path, private=args.private)
+    print(
+        f"문제은행 import 완료: {result['exam_id']} "
+        f"도메인 {result['domains']}개, 개념 {result['concepts']}개, 문항 {result['questions']}개"
+    )
     return 0
 
 
@@ -165,4 +184,7 @@ def cmd_notion_plan(args: argparse.Namespace) -> int:
 def ready_conn():
     if not Path(db_path()).exists():
         raise ValueError("database가 없습니다. 먼저 실행하세요: python -m cert_study init")
-    return connect()
+    conn = connect()
+    initialize(conn)
+    seed_public_banks(conn)
+    return conn

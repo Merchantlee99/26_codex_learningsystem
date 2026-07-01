@@ -8,10 +8,11 @@ from pathlib import Path
 
 from cert_study.db import connect, initialize
 from cert_study.engine import create_session, finish_session, get_next_unanswered, submit_answer
+from cert_study.importer import import_bank_file
 from cert_study.mcp_server import call_tool, handle_message
 from cert_study.notion_sync import prepare_notion_sync_plan
 from cert_study.reporting import write_session_report
-from cert_study.seed_sqld import seed as seed_sqld
+from cert_study.seed_public import seed_public_banks
 
 
 class StudySystemTests(unittest.TestCase):
@@ -21,7 +22,7 @@ class StudySystemTests(unittest.TestCase):
         os.environ["CERT_STUDY_HOME"] = self.tmp.name
         self.conn = connect()
         initialize(self.conn)
-        seed_sqld(self.conn)
+        seed_public_banks(self.conn)
 
     def tearDown(self) -> None:
         self.conn.close()
@@ -34,6 +35,18 @@ class StudySystemTests(unittest.TestCase):
     def test_sqld_seed_bank_has_official_count(self) -> None:
         count = self.conn.execute("SELECT COUNT(*) AS n FROM questions WHERE exam_id = 'SQLD'").fetchone()["n"]
         self.assertEqual(count, 50)
+
+    def test_public_seed_banks_cover_adsp_and_info_processing(self) -> None:
+        counts = {
+            row["exam_id"]: row["n"]
+            for row in self.conn.execute(
+                "SELECT exam_id, COUNT(*) AS n FROM questions GROUP BY exam_id ORDER BY exam_id"
+            ).fetchall()
+        }
+
+        self.assertEqual(counts["SQLD"], 50)
+        self.assertEqual(counts["ADSP"], 50)
+        self.assertEqual(counts["KR_INFO_PROCESSING_ENGINEER"], 100)
 
     def test_custom_20_question_session_uses_sqld_domain_ratio(self) -> None:
         first = create_session(self.conn, exam_id="SQLD", count=20, mode="custom-cbt", seed=7)
@@ -130,7 +143,10 @@ class StudySystemTests(unittest.TestCase):
         self.assertIn("prepare_notion_sync", tool_names)
 
         exams = call_tool("list_exams", {})
-        self.assertEqual(exams["structuredContent"]["available"][0]["id"], "SQLD")
+        available_ids = {row["id"] for row in exams["structuredContent"]["available"]}
+        self.assertIn("SQLD", available_ids)
+        self.assertIn("ADSP", available_ids)
+        self.assertIn("KR_INFO_PROCESSING_ENGINEER", available_ids)
         planned_ids = {row["id"] for row in exams["structuredContent"]["planned"]}
         self.assertIn("AWS_AI_PRACTITIONER", planned_ids)
 
@@ -142,6 +158,18 @@ class StudySystemTests(unittest.TestCase):
         self.assertNotIn("[2/5]", text)
         self.assertNotIn("정답:", text)
         self.assertNotIn("정답표", text)
+
+    def test_adsp_and_info_processing_sessions_start_one_question_only(self) -> None:
+        call_tool("init_study_db", {})
+
+        for exam in ("ADSP", "KR_INFO_PROCESSING_ENGINEER"):
+            result = call_tool("start_session", {"exam": exam, "count": 5, "seed": 4})
+            text = result["content"][0]["text"]
+            self.assertIn("session_id:", text)
+            self.assertIn("[1/5]", text)
+            self.assertNotIn("[2/5]", text)
+            self.assertNotIn("정답:", text)
+            self.assertNotIn("정답표", text)
 
     def test_unsupported_exam_does_not_start_ad_hoc_generation(self) -> None:
         response = handle_message(
@@ -160,6 +188,7 @@ class StudySystemTests(unittest.TestCase):
         text = response["result"]["content"][0]["text"]
         self.assertIn("지원하지 않는 시험", text)
         self.assertIn("SQLD", text)
+        self.assertIn("ADSP", text)
 
     def test_skill_forbids_batch_generation_and_answer_keys(self) -> None:
         skill_text = (Path(__file__).resolve().parents[1] / "skills" / "cert-study" / "SKILL.md").read_text()
@@ -167,7 +196,44 @@ class StudySystemTests(unittest.TestCase):
         self.assertIn("문제 N개 줘", skill_text)
         self.assertIn("일반 답변으로 문제를 만들지 말고", skill_text)
         self.assertIn("세션 종료 전에는 정답표", skill_text)
-        self.assertIn("현재 실제 문제은행으로 출제 가능한 과목은 SQLD뿐", skill_text)
+        self.assertIn("현재 공개 합성 문제은행으로 출제 가능한 과목은 SQLD, ADsP, 정보처리기사", skill_text)
+
+    def test_private_bank_import_requires_private_flag(self) -> None:
+        payload = {
+            "exam": {
+                "id": "PRIVATE_TEST",
+                "name": "개인 문제은행 테스트",
+                "official_question_count": 1,
+                "official_duration_minutes": 10,
+                "pass_score": 60,
+                "domain_min_score": 0,
+            },
+            "domains": [{"id": "P-D1", "name": "개인 영역", "official_weight": 100, "official_question_count": 1}],
+            "concepts": [{"id": "P-C1", "domain_id": "P-D1", "name": "개인 개념", "review_note": "개인 요약"}],
+            "questions": [
+                {
+                    "id": "P-Q1",
+                    "domain_id": "P-D1",
+                    "concept_id": "P-C1",
+                    "question_text": "개인 요약으로 만든 문항은 어떤 source_type으로 import하는가?",
+                    "choices": ["user_owned_summary", "actual_exam_dump", "web_scraped_verbatim", "commercial_book_verbatim"],
+                    "answer": 1,
+                    "explanation": "원문 복제가 아니라 개인 요약이면 user_owned_summary로 private import한다.",
+                    "source_type": "user_owned_summary",
+                    "source_ref": "개인 요약",
+                }
+            ],
+        }
+        path = Path(self.tmp.name) / "private_bank.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+        with self.assertRaises(ValueError):
+            import_bank_file(self.conn, path, private=False)
+
+        result = import_bank_file(self.conn, path, private=True)
+        self.assertEqual(result["exam_id"], "PRIVATE_TEST")
+        count = self.conn.execute("SELECT COUNT(*) AS n FROM questions WHERE exam_id = 'PRIVATE_TEST'").fetchone()["n"]
+        self.assertEqual(count, 1)
 
     def test_mcp_finish_session_returns_obsidian_paths_without_default_notion_plan(self) -> None:
         call_tool("init_study_db", {})

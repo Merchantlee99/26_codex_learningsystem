@@ -8,15 +8,13 @@ from .db import connect, initialize
 from .engine import create_session, finish_session, get_next_unanswered, submit_answer
 from .notion_sync import prepare_notion_sync_plan, render_plan
 from .reporting import render_question, render_session_report, write_study_outputs
-from .seed_sqld import seed as seed_sqld
+from .seed_public import seed_public_banks
 
 
 PROTOCOL_VERSION = "2024-11-05"
 
 
 PLANNED_EXAMS: list[dict[str, str]] = [
-    {"id": "ADSP", "name": "ADsP", "status": "planned"},
-    {"id": "KR_INFO_PROCESSING_ENGINEER", "name": "정보처리기사", "status": "planned"},
     {"id": "AWS_AI_PRACTITIONER", "name": "AWS Certified AI Practitioner", "status": "planned"},
     {"id": "AWS_CLOUD_PRACTITIONER", "name": "AWS Certified Cloud Practitioner", "status": "planned"},
     {
@@ -31,7 +29,7 @@ PLANNED_EXAMS: list[dict[str, str]] = [
 TOOLS: list[dict[str, Any]] = [
     {
         "name": "init_study_db",
-        "description": "로컬 SQLite 학습 DB를 초기화하고 SQLD 합성 훈련 문항을 seed한다.",
+        "description": "로컬 SQLite 학습 DB를 초기화하고 SQLD, ADsP, 정보처리기사 공개 합성 훈련 문항을 seed한다.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     },
     {
@@ -114,7 +112,7 @@ def handle_message(message: dict[str, Any]) -> dict[str, Any] | None:
             {
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "cert-study", "version": "0.2.2"},
+                "serverInfo": {"name": "cert-study", "version": "0.3.0"},
             },
         )
     if method == "tools/list":
@@ -134,7 +132,7 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     if name == "init_study_db":
         with connect() as conn:
             initialize(conn)
-            seed_sqld(conn)
+            seed_public_banks(conn)
         return text_result("로컬 학습 DB를 초기화했습니다.")
 
     if name == "list_exams":
@@ -212,7 +210,7 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
 def ready_conn():
     conn = connect()
     initialize(conn)
-    seed_sqld(conn)
+    seed_public_banks(conn)
     return conn
 
 

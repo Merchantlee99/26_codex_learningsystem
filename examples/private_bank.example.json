@@ -1,0 +1,46 @@
+{
+  "exam": {
+    "id": "MY_PRIVATE_EXAM",
+    "name": "내 개인 문제은행 예시",
+    "official_question_count": 20,
+    "official_duration_minutes": 60,
+    "pass_score": 60,
+    "domain_min_score": 0,
+    "notes": "공개 repo에는 예시만 둡니다. 실제 개인 문제은행은 private_banks/ 아래에 두고 git에 올리지 않습니다."
+  },
+  "domains": [
+    {
+      "id": "MY-D1",
+      "name": "예시 영역",
+      "official_weight": 100,
+      "official_question_count": 20
+    }
+  ],
+  "concepts": [
+    {
+      "id": "MY-C1",
+      "domain_id": "MY-D1",
+      "name": "예시 개념",
+      "review_note": "문제 원문을 복제하지 말고 내가 이해한 개념과 오답 이유 중심으로 정리합니다."
+    }
+  ],
+  "questions": [
+    {
+      "id": "MY-Q001",
+      "domain_id": "MY-D1",
+      "concept_id": "MY-C1",
+      "question_text": "개인 소유 노트 기반으로 직접 만든 예시 문항입니다. 공개 자료 원문을 그대로 복제하지 않은 설명으로 가장 적절한 것은?",
+      "choices": [
+        "개념을 내 말로 재구성한 문항",
+        "실제 시험 문제를 그대로 옮긴 문항",
+        "상업 문제집 원문을 복사한 문항",
+        "출처 없는 웹문항을 긁어온 문항"
+      ],
+      "answer": 1,
+      "explanation": "개인 문제은행은 원문 복제가 아니라 내가 이해한 개념과 오답 이유를 중심으로 만들어야 합니다.",
+      "difficulty": "easy",
+      "source_type": "user_owned_summary",
+      "source_ref": "내 개인 노트 요약"
+    }
+  ]
+}

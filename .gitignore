@@ -11,6 +11,7 @@ venv/
 # Local mutable learning state
 data/study.sqlite
 data/study.sqlite-*
+private_banks/
 reports/sessions/*.md
 obsidian_vault/**/*.md
 obsidian_vault/.obsidian/
