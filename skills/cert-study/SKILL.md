@@ -1,6 +1,6 @@
 ---
 name: cert-study
-description: Run Codex-native CBT study sessions for certification exams with SQLite tracking, detailed wrong-note reports, and disabled-by-default Notion sync planning.
+description: Run Codex-native CBT study sessions for certification exams with SQLite tracking, Obsidian-ready wrong-note reports, and optional disabled-by-default Notion sync planning.
 ---
 
 # Cert Study Skill
@@ -75,6 +75,7 @@ python3 -m cert_study notion plan <session_id>
    ```
 
 7. Summarize the report in chat and link the local report path.
+8. Include the generated Obsidian session note and review queue paths when available.
 
 ## Required Final Report Shape
 
@@ -94,15 +95,28 @@ The final report must include:
 
 Do not collapse wrong questions into only concept names.
 
+## Obsidian Notes
+
+SQLite is the source of truth. Obsidian Markdown is the default readable notebook.
+
+After `finish_session`, the plugin writes:
+
+- `reports/sessions/<session_id>.md`
+- `obsidian_vault/certifications/<EXAM>/sessions/*.md`
+- `obsidian_vault/certifications/<EXAM>/concepts/*.md`
+- `obsidian_vault/certifications/<EXAM>/review-queue.md`
+
+If the user already has an Obsidian vault, set `CERT_STUDY_OBSIDIAN_VAULT` to that absolute path before starting sessions.
+
 ## Notion Sync
 
-SQLite is the source of truth. Notion is a readable notebook.
+Notion is optional. Prefer Obsidian/Markdown unless the user explicitly asks for Notion.
 
 When the user asks to sync Notion:
 
 1. First call `prepare_notion_sync` or run `python3 -m cert_study notion plan <session_id>`.
 2. If the plan status is `disabled_public_default`, show the plan and ask the user to choose/confirm Notion DB targets before any write.
-3. Use the generated `notion_exports/<session_id>.md` as page body.
+3. Use the generated local session report as page body.
 4. Create or update a `Study Sessions` page for the session.
 5. Create one `Wrong Questions` row per wrong attempt.
 6. Create or update one `Concept Reviews` row per weak concept.
@@ -122,4 +136,3 @@ Public default:
 - If source material is copyrighted, store only user-owned notes, concept tags, and mistake summaries.
 - Mark generated questions as synthetic.
 - If official exam details might have changed, verify against official sources before updating exam metadata.
-

@@ -4,9 +4,11 @@ import json
 import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
+from typing import Any
 
 from .engine import domain_score_rows, repeated_wrong_rows, wrong_attempt_rows
-from .paths import notion_exports_dir, reports_dir
+from .obsidian import write_obsidian_notes
+from .paths import reports_dir
 
 
 def render_question(view) -> str:
@@ -23,13 +25,16 @@ def render_question(view) -> str:
     return "\n".join(lines)
 
 
-def write_session_report(conn: sqlite3.Connection, session_id: str) -> Path:
+def write_study_outputs(conn: sqlite3.Connection, session_id: str) -> dict[str, Any]:
     content = render_session_report(conn, session_id)
     path = reports_dir() / f"{session_id}.md"
     path.write_text(content, encoding="utf-8")
-    export_path = notion_exports_dir() / f"{session_id}.md"
-    export_path.write_text(content, encoding="utf-8")
-    return path
+    obsidian = write_obsidian_notes(conn, session_id)
+    return {"report_path": path, "obsidian": obsidian}
+
+
+def write_session_report(conn: sqlite3.Connection, session_id: str) -> Path:
+    return write_study_outputs(conn, session_id)["report_path"]
 
 
 def render_session_report(conn: sqlite3.Connection, session_id: str) -> str:
@@ -112,4 +117,3 @@ def render_session_report(conn: sqlite3.Connection, session_id: str) -> str:
         ]
     )
     return "\n".join(lines) + "\n"
-

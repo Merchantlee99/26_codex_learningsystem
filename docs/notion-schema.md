@@ -1,6 +1,6 @@
 # Notion Schema
 
-Use Notion as the readable notebook, not the source of truth. SQLite remains the canonical study record.
+Use Notion only as an optional database view, not the source of truth. SQLite remains the canonical study record, and Obsidian Markdown is the default readable notebook.
 
 The public plugin default is disabled. It only prepares a Notion sync plan until the user chooses target databases and enables:
 

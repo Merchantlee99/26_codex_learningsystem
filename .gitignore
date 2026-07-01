@@ -12,9 +12,10 @@ venv/
 data/study.sqlite
 data/study.sqlite-*
 reports/sessions/*.md
-notion_exports/*.md
+obsidian_vault/**/*.md
+obsidian_vault/.obsidian/
+notion_exports/
 *.tmp
 
 !reports/sessions/.gitkeep
-!notion_exports/.gitkeep
-
+!obsidian_vault/.gitkeep

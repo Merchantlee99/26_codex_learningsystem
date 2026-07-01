@@ -60,7 +60,7 @@ class StudySystemTests(unittest.TestCase):
         self.assertEqual(result["score"], 100.0)
         self.assertIn("합격권", result["judgement"])
 
-    def test_wrong_note_report_contains_answers_explanation_and_export(self) -> None:
+    def test_wrong_note_report_contains_answers_explanation_and_obsidian_notes(self) -> None:
         first = create_session(self.conn, exam_id="SQLD", count=5, mode="custom-cbt", seed=2)
         current = get_next_unanswered(self.conn, first.session_id)
         self.assertIsNotNone(current)
@@ -81,7 +81,15 @@ class StudySystemTests(unittest.TestCase):
         self.assertIn("해설:", report)
         self.assertIn("내가 틀린 이유:", report)
         self.assertIn("## 오늘 복습할 개념", report)
-        self.assertTrue((Path(self.tmp.name) / "notion_exports" / f"{first.session_id}.md").exists())
+        obsidian_dir = Path(self.tmp.name) / "obsidian_vault" / "certifications" / "SQLD"
+        session_notes = list((obsidian_dir / "sessions").glob("*.md"))
+        concept_notes = list((obsidian_dir / "concepts").glob("*.md"))
+        self.assertEqual(len(session_notes), 1)
+        self.assertGreaterEqual(len(concept_notes), 1)
+        self.assertTrue((obsidian_dir / "review-queue.md").exists())
+        obsidian_note = session_notes[0].read_text(encoding="utf-8")
+        self.assertIn("type: study-session", obsidian_note)
+        self.assertIn("[[certifications/SQLD/concepts/", obsidian_note)
 
     def test_notion_sync_plan_is_disabled_by_default(self) -> None:
         first = create_session(self.conn, exam_id="SQLD", count=5, mode="custom-cbt", seed=3)
@@ -116,6 +124,22 @@ class StudySystemTests(unittest.TestCase):
         text = result["content"][0]["text"]
         self.assertIn("session_id:", text)
         self.assertIn("[1/5]", text)
+
+    def test_mcp_finish_session_returns_obsidian_paths_without_default_notion_plan(self) -> None:
+        call_tool("init_study_db", {})
+        start = call_tool("start_session", {"exam": "SQLD", "count": 3, "seed": 5})
+        session_id = start["structuredContent"]["session_id"]
+        with connect() as conn:
+            answer_all_with_correct_answers(conn, session_id)
+
+        result = call_tool("finish_session", {"session_id": session_id})
+
+        text = result["content"][0]["text"]
+        structured = result["structuredContent"]
+        self.assertIn("obsidian_session_note:", text)
+        self.assertIn("obsidian_review_queue:", text)
+        self.assertIsNone(structured["notion_sync"])
+        self.assertTrue(Path(structured["obsidian"]["session_note"]).exists())
 
 
 def correct_answer_for(conn, question_id: str) -> int:

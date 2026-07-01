@@ -8,7 +8,7 @@ from .db import connect, initialize
 from .engine import create_session, finish_session, get_next_unanswered, submit_answer
 from .notion_sync import prepare_notion_sync_plan, render_plan
 from .paths import db_path
-from .reporting import render_question, render_session_report, write_session_report
+from .reporting import render_question, render_session_report, write_study_outputs
 from .seed_sqld import seed as seed_sqld
 
 
@@ -140,10 +140,12 @@ def cmd_session_current(args: argparse.Namespace) -> int:
 def cmd_session_finish(args: argparse.Namespace) -> int:
     with ready_conn() as conn:
         result = finish_session(conn, args.session_id, allow_incomplete=args.allow_incomplete)
-        report_path = write_session_report(conn, args.session_id)
+        outputs = write_study_outputs(conn, args.session_id)
         report = render_session_report(conn, args.session_id)
     print(report)
-    print(f"report_path: {report_path}")
+    print(f"report_path: {outputs['report_path']}")
+    print(f"obsidian_session_note: {outputs['obsidian']['session_note']}")
+    print(f"obsidian_review_queue: {outputs['obsidian']['review_queue']}")
     print(f"score_summary: {result['correct']}/{result['total']} ({result['score']}점) - {result['judgement']}")
     return 0
 

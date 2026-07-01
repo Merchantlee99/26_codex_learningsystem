@@ -8,7 +8,8 @@ User answer in chat
   -> SQLite records answer
   -> MCP tool returns next question
   -> finish tool generates report
-  -> optional disabled-by-default Notion sync plan
+  -> Obsidian-friendly Markdown notes
+  -> optional disabled-by-default Notion sync plan on request
 ```
 
 ## Components
@@ -26,6 +27,7 @@ cert_study/
   engine.py       session selection, answer recording, scoring, review scheduling
   mcp_server.py   stdio MCP server used by Codex plugin loading
   notion_sync.py  Notion write-plan harness, disabled by default
+  obsidian.py     Obsidian vault/session/concept note writer
   reporting.py    Markdown report rendering
   seed_sqld.py    SQLD synthetic question seed
 
@@ -43,7 +45,9 @@ tests/
 
 SQLite is the source of truth.
 
-Notion is a projection for reading and review. This avoids slow Notion queries during CBT and keeps scoring deterministic.
+Obsidian/Markdown is the default readable notebook. The plugin writes session notes, concept notes, and a review queue under `obsidian_vault/` or the path set by `CERT_STUDY_OBSIDIAN_VAULT`.
+
+Notion is an optional projection for users who want a database view. This avoids slow or unavailable Notion queries during CBT and keeps scoring deterministic.
 
 The public plugin does not automatically write to Notion. It prepares a sync plan through `prepare_notion_sync`; actual Notion MCP writes require user-selected database targets and `CERT_STUDY_ENABLE_NOTION_SYNC=1`.
 
@@ -75,7 +79,6 @@ Expected coverage:
 - session answer progression
 - scoring
 - report content
-- Notion export file creation
+- Obsidian session, concept, and review-queue note creation
 - plugin manifest shape
 - Notion sync disabled-by-default behavior
-

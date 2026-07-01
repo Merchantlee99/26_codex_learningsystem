@@ -7,7 +7,7 @@ from typing import Any
 from .db import connect, initialize
 from .engine import create_session, finish_session, get_next_unanswered, submit_answer
 from .notion_sync import prepare_notion_sync_plan, render_plan
-from .reporting import render_question, render_session_report, write_session_report
+from .reporting import render_question, render_session_report, write_study_outputs
 from .seed_sqld import seed as seed_sqld
 
 
@@ -55,7 +55,7 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "session_id": {"type": "string"},
                 "allow_incomplete": {"type": "boolean", "default": False},
-                "prepare_notion_sync": {"type": "boolean", "default": True},
+                "prepare_notion_sync": {"type": "boolean", "default": False},
             },
             "required": ["session_id"],
             "additionalProperties": False,
@@ -143,15 +143,26 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     if name == "finish_session":
         with ready_conn() as conn:
             finish_session(conn, arguments["session_id"], allow_incomplete=bool(arguments.get("allow_incomplete", False)))
-            report_path = write_session_report(conn, arguments["session_id"])
+            outputs = write_study_outputs(conn, arguments["session_id"])
             report = render_session_report(conn, arguments["session_id"])
             sync_plan = None
-            if arguments.get("prepare_notion_sync", True):
+            if arguments.get("prepare_notion_sync", False):
                 sync_plan = prepare_notion_sync_plan(conn, arguments["session_id"])
-        text = f"{report}\nreport_path: {report_path}"
+        text = (
+            f"{report}\nreport_path: {outputs['report_path']}"
+            f"\nobsidian_session_note: {outputs['obsidian']['session_note']}"
+            f"\nobsidian_review_queue: {outputs['obsidian']['review_queue']}"
+        )
         if sync_plan is not None:
             text += "\n\n## Notion Sync Plan\n" + render_plan(sync_plan)
-        return text_result(text, {"report_path": str(report_path), "notion_sync": sync_plan})
+        return text_result(
+            text,
+            {
+                "report_path": str(outputs["report_path"]),
+                "obsidian": outputs["obsidian"],
+                "notion_sync": sync_plan,
+            },
+        )
 
     if name == "prepare_notion_sync":
         with ready_conn() as conn:
@@ -207,4 +218,3 @@ def write_message(stream, message: dict[str, Any]) -> None:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
