@@ -113,6 +113,15 @@ class StudySystemTests(unittest.TestCase):
         self.assertEqual(manifest["skills"], "./skills/")
         self.assertEqual(manifest["mcpServers"], "./.mcp.json")
 
+    def test_mcp_config_runs_from_plugin_root(self) -> None:
+        config = json.loads((Path(__file__).resolve().parents[1] / ".mcp.json").read_text())
+        server = config["mcpServers"]["cert-study"]
+
+        self.assertEqual(server["type"], "stdio")
+        self.assertEqual(server["command"], "python3")
+        self.assertEqual(server["cwd"], ".")
+        self.assertEqual(server["args"], ["-m", "cert_study.mcp_server"])
+
     def test_mcp_tools_list_and_start_session(self) -> None:
         tools_response = handle_message({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
         tool_names = {tool["name"] for tool in tools_response["result"]["tools"]}

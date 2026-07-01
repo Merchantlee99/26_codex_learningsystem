@@ -3,6 +3,7 @@
     "cert-study": {
       "type": "stdio",
       "command": "python3",
+      "cwd": ".",
       "args": [
         "-m",
         "cert_study.mcp_server"
@@ -10,4 +11,3 @@
     }
   }
 }
-
