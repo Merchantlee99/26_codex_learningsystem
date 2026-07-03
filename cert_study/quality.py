@@ -7,6 +7,8 @@ from typing import Any
 EXAM_READY_MODE = "exam-ready"
 EXAM_READY_SOURCE_TIERS = {"official_sample", "open_license", "user_owned", "licensed_private"}
 EXAM_READY_QUALITY_STATUSES = {"active"}
+SOURCE_BACKED_MODES = {"source-backed", "source_backed", "source-backed-cbt", "real-cbt", "private-cbt"}
+SYNTHETIC_SOURCE_TYPES = {"synthetic", "synthetic_recent_scope"}
 GCP_GAIL_ALLOWED_DOC_HOSTS = (
     "https://cloud.google.com/",
     "https://ai.google.dev/",
@@ -18,10 +20,22 @@ def is_exam_ready_mode(mode: str) -> bool:
     return mode in {EXAM_READY_MODE, "exam_ready", "exam-ready-cbt"}
 
 
+def is_source_backed_mode(mode: str) -> bool:
+    return mode in SOURCE_BACKED_MODES
+
+
 def is_exam_ready_row(row: sqlite3.Row) -> bool:
     return (
         row["quality_status"] in EXAM_READY_QUALITY_STATUSES
         and row["source_tier"] in EXAM_READY_SOURCE_TIERS
+        and row["question_type"] == "single_choice"
+    )
+
+
+def is_source_backed_row(row: sqlite3.Row) -> bool:
+    return (
+        row["source_type"] not in SYNTHETIC_SOURCE_TYPES
+        and row["source_tier"] != "synthetic"
         and row["question_type"] == "single_choice"
     )
 

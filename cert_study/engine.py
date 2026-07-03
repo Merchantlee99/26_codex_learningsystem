@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Iterable
 
-from .quality import is_exam_ready_mode, is_exam_ready_row
+from .quality import is_exam_ready_mode, is_exam_ready_row, is_source_backed_mode, is_source_backed_row
 
 RECENT_EXCLUSION_DAYS = 1
 REVIEW_MODES = {"review-cbt", "review", "due-review"}
@@ -158,6 +158,8 @@ def question_candidates(conn: sqlite3.Connection, *, exam_id: str, domain_id: st
     ).fetchall()
     if is_exam_ready_mode(mode):
         return [row for row in rows if is_exam_ready_row(row)]
+    if is_source_backed_mode(mode):
+        return [row for row in rows if is_source_backed_row(row)]
     return rows
 
 

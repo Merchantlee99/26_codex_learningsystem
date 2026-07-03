@@ -50,9 +50,9 @@ TOOLS: list[dict[str, Any]] = [
                 "regular": {"type": "boolean", "default": False},
                 "mode": {
                     "type": "string",
-                    "enum": ["custom-cbt", "review-cbt", "weak-cbt", "exam-ready"],
+                    "enum": ["custom-cbt", "review-cbt", "weak-cbt", "exam-ready", "source-backed"],
                     "default": "custom-cbt",
-                    "description": "custom-cbt는 미노출 우선, review-cbt는 복습 예정/오답 우선, weak-cbt는 취약 개념 우선, exam-ready는 active 비합성 문제만 출제합니다.",
+                    "description": "custom-cbt는 미노출 우선, review-cbt는 복습 예정/오답 우선, weak-cbt는 취약 개념 우선, exam-ready는 active 비합성 문제만, source-backed는 검수 전이라도 출처 기반 문항만 출제합니다.",
                 },
                 "seed": {"type": "integer"},
             },

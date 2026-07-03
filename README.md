@@ -327,11 +327,18 @@ python3 -m cert_study bank promote-gcp-gail --checked-at 2026-07-03
 
 즉, 합성 seed나 공식 검수 전 문항은 실전 모드에서 자동 제외됩니다. 부족한 과목은 먼저 `coverage`로 어느 영역이 비어 있는지 확인한 뒤 `private_banks/` 문제은행을 보강합니다.
 
-정보처리기사처럼 ZIP/PDF 자료가 있는 과목은 먼저 private archive를 점검합니다. 이 명령은 PDF 후보만 세고, 원문 문제를 공개 repo나 DB로 복사하지 않습니다.
+`source-backed` 모드는 검수 전 문항이라도 합성 seed를 제외하고 출처가 있는 문항만 출제합니다. 정보처리기사 private 기출처럼 먼저 풀어보며 오답을 쌓고 싶은 자료는 이 모드를 씁니다.
+
+정보처리기사처럼 ZIP/PDF 자료가 있는 과목은 먼저 private archive를 점검한 뒤 import-ready JSON으로 변환합니다. 이 명령은 원문 문제를 공개 repo에 저장하지 않고, ignored 된 `private_banks/` 안에서만 결과를 만듭니다.
 
 ```bash
 python3 -m pip install -e ".[pdf]"
 python3 -m cert_study bank inspect-info-processing private_banks/raw_sources/info_processing/sinagong
+python3 -m cert_study bank convert-info-processing \
+  private_banks/raw_sources/info_processing/sinagong \
+  private_banks/import_ready/info_processing/ipe_past_exams.json
+python3 -m cert_study bank import private_banks/import_ready/info_processing/ipe_past_exams.json --private
+python3 -m cert_study session start --exam KR_INFO_PROCESSING_ENGINEER --count 20 --mode source-backed
 ```
 
 ## 과목 추가
@@ -420,7 +427,8 @@ AGENTS.md
 - 공식 도메인 비중 대비 문제은행 커버리지 리포트
 - GCP Generative AI Leader 로컬 자료 변환기
 - GCP Generative AI Leader 공식 문서 URL 기반 exam-ready 승격 명령
-- 정보처리기사 private ZIP/PDF 후보 inspector
+- 정보처리기사 private ZIP/PDF 후보 inspector와 import-ready 변환기
+- 합성 문항을 제외하는 `source-backed` 출제 모드
 - 미노출 우선, 복습 예정, 취약 개념 기반 출제 우선순위
 - CBT 세션 시작/답변/현재 문제/종료 명령
 - SQLite 학습 원장

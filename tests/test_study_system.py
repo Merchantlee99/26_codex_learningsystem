@@ -11,7 +11,7 @@ from cert_study.db import connect, initialize
 from cert_study.engine import create_session, finish_session, get_next_unanswered, submit_answer
 from cert_study.importer import import_bank_file
 from cert_study.importers.gcp_gail import convert_gail_practice_questions_text
-from cert_study.importers.info_processing import inspect_info_processing_archives
+from cert_study.importers.info_processing import inspect_info_processing_archives, parse_info_processing_exam_blocks
 from cert_study.mcp_server import call_tool, handle_message
 from cert_study.notion_sync import prepare_notion_sync_plan
 from cert_study.quality import coverage_report, promote_gcp_gail_questions
@@ -51,6 +51,65 @@ class StudySystemTests(unittest.TestCase):
         self.assertEqual(counts["SQLD"], 50)
         self.assertEqual(counts["ADSP"], 50)
         self.assertEqual(counts["KR_INFO_PROCESSING_ENGINEER"], 100)
+
+    def test_source_backed_mode_filters_out_synthetic_questions(self) -> None:
+        concept_by_domain = {
+            row["domain_id"]: row["id"]
+            for row in self.conn.execute(
+                "SELECT id, domain_id FROM concepts WHERE exam_id = 'KR_INFO_PROCESSING_ENGINEER' GROUP BY domain_id"
+            ).fetchall()
+        }
+        rows = []
+        for idx, domain_id in enumerate(sorted(concept_by_domain), start=1):
+            rows.append(
+                {
+                    "id": f"IPE-PRIVATE-Q{idx}",
+                    "exam_id": "KR_INFO_PROCESSING_ENGINEER",
+                    "domain_id": domain_id,
+                    "concept_id": concept_by_domain[domain_id],
+                    "question_text": f"private source backed question {idx}",
+                    "choices_json": json.dumps(["A", "B", "C", "D"]),
+                    "answer": 1,
+                    "explanation": "private source backed explanation",
+                    "difficulty": "medium",
+                    "source_type": "licensed_private",
+                    "source_ref": "private-fixture",
+                    "source_tier": "licensed_private",
+                    "quality_status": "needs_review",
+                }
+            )
+        self.conn.executemany(
+            """
+            INSERT INTO questions
+            (id, exam_id, domain_id, concept_id, question_text, choices_json, answer, explanation, difficulty,
+             source_type, source_ref, source_tier, quality_status)
+            VALUES
+            (:id, :exam_id, :domain_id, :concept_id, :question_text, :choices_json, :answer, :explanation,
+             :difficulty, :source_type, :source_ref, :source_tier, :quality_status)
+            """,
+            rows,
+        )
+        self.conn.commit()
+
+        first = create_session(
+            self.conn,
+            exam_id="KR_INFO_PROCESSING_ENGINEER",
+            count=5,
+            mode="source-backed",
+            seed=10,
+        )
+        selected = self.conn.execute(
+            """
+            SELECT q.source_type, q.source_tier
+            FROM session_questions sq
+            JOIN questions q ON q.id = sq.question_id
+            WHERE sq.session_id = ?
+            """,
+            (first.session_id,),
+        ).fetchall()
+
+        self.assertEqual({row["source_type"] for row in selected}, {"licensed_private"})
+        self.assertEqual({row["source_tier"] for row in selected}, {"licensed_private"})
 
     def test_custom_20_question_session_uses_sqld_domain_ratio(self) -> None:
         first = create_session(self.conn, exam_id="SQLD", count=20, mode="custom-cbt", seed=7)
@@ -510,6 +569,32 @@ export const PRACTICE_QUESTIONS: Question[] = [
 
         with self.assertRaises(ValueError):
             inspect_info_processing_archives(text_path)
+
+    def test_info_processing_parser_handles_trailing_choice_markers(self) -> None:
+        blocks = [
+            "소프트웨어 공학에서 워크스루에 대한 설명으로 틀린\n1.\n(Walkthrough)\n것은?",
+            "사용사례를 확장하여 명세하거나 설계 다이어그램에 적용할 수 있다.\n①",
+            "테스트 케이스 등에 적용할 수 있다.\n복잡한 알고리즘을 이해하려고 할 때 유용하다.\n②",
+            "인스펙션과 동일한 의미를 가진다.\n③",
+            "단순한 테스트 케이스를 이용하여 수작업으로 수행해 보는 것이다.\n④",
+            "애자일 방법론에 해당하지 않는 것은\n2.\n?\n기능 중심 개발\n①\n개발 및 검증\n②\n익스트림 프로그래밍\n③\n칸반\n④",
+        ]
+
+        questions = parse_info_processing_exam_blocks(
+            blocks,
+            answers={1: 3, 2: 2},
+            year=2025,
+            round_no=1,
+            source_ref="2025_info_processing_written.zip/2025년1회.pdf",
+        )
+
+        self.assertEqual(len(questions), 2)
+        self.assertEqual(questions[0]["id"], "IPE_PAST_2025_1_Q001")
+        self.assertIn("워크스루", questions[0]["question_text"])
+        self.assertEqual(questions[0]["choices"][0], "사용사례를 확장하여 명세하거나 설계 다이어그램에 적용할 수 있다. 테스트 케이스 등에 적용할 수 있다.")
+        self.assertEqual(questions[0]["answer"], 3)
+        self.assertEqual(questions[1]["choices"], ["기능 중심 개발", "개발 및 검증", "익스트림 프로그래밍", "칸반"])
+        self.assertEqual(questions[1]["quality_status"], "needs_review")
 
     def test_mcp_finish_session_returns_obsidian_paths_without_default_notion_plan(self) -> None:
         call_tool("init_study_db", {})

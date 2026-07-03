@@ -8,7 +8,12 @@ from .db import connect, initialize
 from .engine import create_session, finish_session, get_next_unanswered, submit_answer, today_iso
 from .importer import import_bank_file
 from .importers.gcp_gail import SOURCE_REPOSITORY, convert_gail_exam_data_file
-from .importers.info_processing import inspect_info_processing_archives, render_info_processing_archive_report
+from .importers.info_processing import (
+    convert_info_processing_archives,
+    inspect_info_processing_archives,
+    render_info_processing_archive_report,
+    render_info_processing_convert_report,
+)
 from .notion_sync import prepare_notion_sync_plan, render_plan
 from .paths import db_path
 from .quality import coverage_report, promote_gcp_gail_questions, render_coverage_report
@@ -72,6 +77,26 @@ def build_parser() -> argparse.ArgumentParser:
     bank_inspect_info.add_argument("path", type=Path)
     bank_inspect_info.set_defaults(func=cmd_bank_inspect_info_processing)
 
+    bank_convert_info = bank_sub.add_parser(
+        "convert-info-processing",
+        help="정보처리기사 private ZIP/PDF 기출을 내부 CBT import-ready JSON으로 변환합니다.",
+    )
+    bank_convert_info.add_argument("source", type=Path)
+    bank_convert_info.add_argument("output", type=Path)
+    bank_convert_info.add_argument(
+        "--mark-active",
+        action="store_true",
+        help="검수 완료로 보고 exam-ready 후보가 되도록 active/current 상태로 저장합니다.",
+    )
+    bank_convert_info.add_argument("--checked-at", default="", help="--mark-active 사용 시 검수일. 예: 2026-07-03")
+    bank_convert_info.add_argument(
+        "--min-questions",
+        type=int,
+        default=90,
+        help="PDF 한 개에서 최소 몇 문항 이상 변환되어야 포함할지 정합니다. 기본값은 90입니다.",
+    )
+    bank_convert_info.set_defaults(func=cmd_bank_convert_info_processing)
+
     session = sub.add_parser("session", help="CBT 세션을 관리합니다.")
     session_sub = session.add_subparsers(required=True)
 
@@ -82,8 +107,8 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument(
         "--mode",
         default="custom-cbt",
-        choices=["custom-cbt", "review-cbt", "weak-cbt", "exam-ready"],
-        help="custom-cbt는 미노출 우선, review-cbt는 복습 예정/오답 우선, weak-cbt는 취약 개념 우선, exam-ready는 active 비합성 문제만 출제합니다.",
+        choices=["custom-cbt", "review-cbt", "weak-cbt", "exam-ready", "source-backed"],
+        help="custom-cbt는 미노출 우선, review-cbt는 복습 예정/오답 우선, weak-cbt는 취약 개념 우선, exam-ready는 active 비합성 문제만, source-backed는 검수 전이라도 출처 기반 문항만 출제합니다.",
     )
     start.add_argument("--seed", type=int, help="문항 선택을 재현하기 위한 seed입니다.")
     start.set_defaults(func=cmd_session_start)
@@ -217,6 +242,18 @@ def cmd_bank_promote_gcp_gail(args: argparse.Namespace) -> int:
 
 def cmd_bank_inspect_info_processing(args: argparse.Namespace) -> int:
     print(render_info_processing_archive_report(inspect_info_processing_archives(args.path)))
+    return 0
+
+
+def cmd_bank_convert_info_processing(args: argparse.Namespace) -> int:
+    report = convert_info_processing_archives(
+        args.source,
+        args.output,
+        mark_active=bool(args.mark_active),
+        checked_at=args.checked_at,
+        min_questions=args.min_questions,
+    )
+    print(render_info_processing_convert_report(report))
     return 0
 
 

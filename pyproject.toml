@@ -11,7 +11,7 @@ authors = [{ name = "Sanginn Lee" }]
 cert-study = "cert_study.cli:main"
 
 [project.optional-dependencies]
-pdf = ["pypdf>=5.0.0"]
+pdf = ["pypdf>=5.0.0", "PyMuPDF>=1.24.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
