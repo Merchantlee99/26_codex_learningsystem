@@ -45,8 +45,18 @@
 | `custom-cbt` | 미노출 문제 -> 복습 예정 문제 -> 오답 이력 개념 -> 오래 전에 푼 문제 -> 최근에 본 문제 |
 | `review-cbt` | 복습 예정 오답 -> 오답 이력 문제 -> 미노출 문제 -> 오래 전에 푼 문제 |
 | `weak-cbt` | 자주 틀린 개념의 문항 -> 복습 예정 문제 -> 미노출 문제 -> 오래 전에 푼 문제 |
+| `exam-ready` | `quality_status=active`이고 `source_tier`가 공식 샘플, 오픈 라이선스, 사용자 소유, 라이선스 보유 개인 자료인 문항만 출제 |
 
 이렇게 해야 문제 수가 늘어났을 때 “랜덤으로 같은 것만 계속 푸는” 상태를 피할 수 있습니다.
+
+실전 모드로 풀기 전에 coverage를 먼저 확인합니다.
+
+```bash
+python3 -m cert_study coverage --exam AWS_CLOUD_PRACTITIONER
+python3 -m cert_study session start --exam AWS_CLOUD_PRACTITIONER --regular --mode exam-ready
+```
+
+`coverage`는 공식 도메인 비중 기준으로 현재 `exam-ready` 문항이 몇 개 있는지 보여줍니다. 부족한 영역은 문제 수를 늘리는 것보다 먼저 출처와 품질 상태를 정리해야 합니다.
 
 구현 파일은 아래처럼 둡니다.
 
@@ -134,7 +144,24 @@ JSON 예시는 `examples/private_bank.example.json`에 있습니다.
 - 개인 source type은 `user_owned_summary`, `user_owned_raw`, `licensed_private`, `personal_wrong_note`, `restored_summary` 중 하나인지
 - 개인 source type은 반드시 `--private` 옵션으로만 import되는지
 - `actual_exam_dump`, `credential_assessment_material`, `commercial_book_verbatim`, `web_scraped_verbatim`은 거부되는지
-- 가능하면 `question_type`, `answer_json`, `source_license`, `storage_policy`, `validity_status`, `provenance`가 남아 있는지
+- 가능하면 `question_type`, `answer_json`, `source_license`, `source_tier`, `storage_policy`, `validity_status`, `quality_status`, `scope_version`, `official_checked_at`, `provenance`가 남아 있는지
+
+## 품질 상태 기준
+
+`exam-ready` 세션은 내부 CBT를 그대로 쓰되, 실전 출제 가능한 문제만 고릅니다. 외부 CBT 링크나 외부 채점 흐름을 쓰지 않습니다.
+
+| 필드 | 값 | 의미 |
+| --- | --- | --- |
+| `source_tier` | `official_sample` | 공식 샘플 문항 |
+| `source_tier` | `open_license` | MIT 등 재사용 가능한 공개 라이선스 문항 |
+| `source_tier` | `user_owned` | 사용자가 직접 정리하거나 소유한 개인 문제은행 |
+| `source_tier` | `licensed_private` | 라이선스가 있는 개인 보관 자료 |
+| `source_tier` | `synthetic` | 공개 데모/개념 보강용 합성 문항 |
+| `quality_status` | `active` | 실전 CBT 출제 가능 |
+| `quality_status` | `needs_review` | 공식 가이드 대조 전 |
+| `quality_status` | `outdated` | 출제범위 변경으로 제외 |
+| `quality_status` | `bad_answer` | 정답 의심 |
+| `quality_status` | `weak_explanation` | 해설 보강 필요 |
 
 ## 추가하려는 과목
 

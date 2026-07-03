@@ -50,8 +50,13 @@ CREATE TABLE IF NOT EXISTS questions (
   source_type TEXT NOT NULL,
   source_ref TEXT NOT NULL,
   source_license TEXT NOT NULL DEFAULT 'unknown',
+  source_tier TEXT NOT NULL DEFAULT 'unknown',
   storage_policy TEXT NOT NULL DEFAULT 'raw_allowed',
   validity_status TEXT NOT NULL DEFAULT 'current',
+  quality_status TEXT NOT NULL DEFAULT 'active',
+  scope_version TEXT NOT NULL DEFAULT '',
+  official_checked_at TEXT NOT NULL DEFAULT '',
+  quality_notes TEXT NOT NULL DEFAULT '',
   provenance_json TEXT NOT NULL DEFAULT '{}'
 );
 
@@ -146,8 +151,13 @@ def ensure_schema_extensions(conn: sqlite3.Connection) -> None:
             "question_type": "TEXT NOT NULL DEFAULT 'single_choice'",
             "answer_json": "TEXT NOT NULL DEFAULT '{\"choices\":[1]}'",
             "source_license": "TEXT NOT NULL DEFAULT 'unknown'",
+            "source_tier": "TEXT NOT NULL DEFAULT 'unknown'",
             "storage_policy": "TEXT NOT NULL DEFAULT 'raw_allowed'",
             "validity_status": "TEXT NOT NULL DEFAULT 'current'",
+            "quality_status": "TEXT NOT NULL DEFAULT 'active'",
+            "scope_version": "TEXT NOT NULL DEFAULT ''",
+            "official_checked_at": "TEXT NOT NULL DEFAULT ''",
+            "quality_notes": "TEXT NOT NULL DEFAULT ''",
             "provenance_json": "TEXT NOT NULL DEFAULT '{}'",
         },
     )
@@ -189,5 +199,32 @@ def backfill_v2_columns(conn: sqlite3.Connection) -> None:
         UPDATE attempts
         SET correct_answer_json = '{"choices":[' || correct_answer || ']}'
         WHERE correct_answer_json IS NULL OR correct_answer_json = '' OR correct_answer_json = '{}'
+        """
+    )
+    conn.execute(
+        """
+        UPDATE questions
+        SET source_tier = CASE
+          WHEN source_type IN ('synthetic', 'synthetic_recent_scope') THEN 'synthetic'
+          WHEN source_type IN ('official_sample_link', 'official_public_sample') THEN 'official_sample'
+          WHEN source_type IN ('public_license', 'open_license') THEN 'open_license'
+          WHEN source_type IN ('licensed_private') THEN 'licensed_private'
+          WHEN source_type IN ('user_owned_summary', 'user_owned_raw', 'personal_wrong_note', 'restored_summary') THEN 'user_owned'
+          ELSE source_tier
+        END
+        WHERE source_tier IS NULL OR source_tier = '' OR source_tier = 'unknown'
+        """
+    )
+    conn.execute(
+        """
+        UPDATE questions
+        SET quality_status = CASE
+          WHEN validity_status IN ('needs_official_check', 'unknown') THEN 'needs_review'
+          WHEN validity_status IN ('outdated') THEN 'outdated'
+          ELSE 'active'
+        END
+        WHERE quality_status IS NULL
+           OR quality_status = ''
+           OR (quality_status = 'active' AND validity_status IN ('needs_official_check', 'unknown', 'outdated'))
         """
     )

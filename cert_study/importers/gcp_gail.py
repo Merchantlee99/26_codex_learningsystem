@@ -98,8 +98,13 @@ def convert_gail_practice_questions_text(text: str, *, source_ref: str = SOURCE_
                 "source_type": "public_license",
                 "source_ref": source_ref,
                 "source_license": "MIT",
+                "source_tier": "open_license",
                 "storage_policy": "raw_allowed",
                 "validity_status": "needs_official_check",
+                "quality_status": "needs_review",
+                "scope_version": "2026",
+                "official_checked_at": "",
+                "quality_notes": "공식 Google Cloud 시험 가이드 대조 전입니다.",
                 "provenance": {
                     "repository": source_ref,
                     "path": "lib/exam-data.ts",

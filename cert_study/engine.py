@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Iterable
 
+from .quality import is_exam_ready_mode, is_exam_ready_row
+
 RECENT_EXCLUSION_DAYS = 1
 REVIEW_MODES = {"review-cbt", "review", "due-review"}
 WEAK_MODES = {"weak-cbt", "weak", "weak-review"}
@@ -99,9 +101,14 @@ def select_questions(
     rng = random.Random(seed if seed is not None else datetime.now().timestamp())
     selected: list[sqlite3.Row] = []
     for domain in domains:
-        rows = question_candidates(conn, exam_id=exam_id, domain_id=domain["id"])
+        rows = question_candidates(conn, exam_id=exam_id, domain_id=domain["id"], mode=mode)
         need = counts[domain["id"]]
         if len(rows) < need:
+            if is_exam_ready_mode(mode):
+                raise ValueError(
+                    f"exam-ready 문항이 부족합니다: {domain['name']} need {need}, have {len(rows)}. "
+                    "quality_status=active이고 source_tier가 official_sample/open_license/user_owned/licensed_private인 문제를 보강하세요."
+                )
             raise ValueError(f"not enough questions for {domain['name']}: need {need}, have {len(rows)}")
         ranked = rank_question_candidates(rows, mode=mode, rng=rng)
         selected.extend(ranked[:need])
@@ -109,8 +116,8 @@ def select_questions(
     return selected
 
 
-def question_candidates(conn: sqlite3.Connection, *, exam_id: str, domain_id: str) -> list[sqlite3.Row]:
-    return conn.execute(
+def question_candidates(conn: sqlite3.Connection, *, exam_id: str, domain_id: str, mode: str = "custom-cbt") -> list[sqlite3.Row]:
+    rows = conn.execute(
         """
         SELECT
           q.*,
@@ -149,6 +156,9 @@ def question_candidates(conn: sqlite3.Connection, *, exam_id: str, domain_id: st
         """,
         (exam_id, domain_id),
     ).fetchall()
+    if is_exam_ready_mode(mode):
+        return [row for row in rows if is_exam_ready_row(row)]
+    return rows
 
 
 def rank_question_candidates(rows: list[sqlite3.Row], *, mode: str, rng: random.Random) -> list[sqlite3.Row]:

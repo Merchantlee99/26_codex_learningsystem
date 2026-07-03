@@ -10,6 +10,7 @@ from .importer import import_bank_file
 from .importers.gcp_gail import SOURCE_REPOSITORY, convert_gail_exam_data_file
 from .notion_sync import prepare_notion_sync_plan, render_plan
 from .paths import db_path
+from .quality import coverage_report, render_coverage_report
 from .reporting import render_question, render_session_report, write_study_outputs
 from .seed_public import seed_public_banks
 
@@ -34,6 +35,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     stats = sub.add_parser("stats", help="문제은행 통계를 보여줍니다.")
     stats.set_defaults(func=cmd_stats)
+
+    coverage = sub.add_parser("coverage", help="공식 출제 비중 기준으로 exam-ready 문제은행 품질을 점검합니다.")
+    coverage.add_argument("--exam", default="SQLD")
+    coverage.set_defaults(func=cmd_coverage)
 
     bank = sub.add_parser("bank", help="개인 문제은행 import를 관리합니다.")
     bank_sub = bank.add_subparsers(required=True)
@@ -62,8 +67,8 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument(
         "--mode",
         default="custom-cbt",
-        choices=["custom-cbt", "review-cbt", "weak-cbt"],
-        help="custom-cbt는 미노출 우선, review-cbt는 복습 예정/오답 우선, weak-cbt는 취약 개념 우선입니다.",
+        choices=["custom-cbt", "review-cbt", "weak-cbt", "exam-ready"],
+        help="custom-cbt는 미노출 우선, review-cbt는 복습 예정/오답 우선, weak-cbt는 취약 개념 우선, exam-ready는 active 비합성 문제만 출제합니다.",
     )
     start.add_argument("--seed", type=int, help="문항 선택을 재현하기 위한 seed입니다.")
     start.set_defaults(func=cmd_session_start)
@@ -115,6 +120,14 @@ def cmd_stats(args: argparse.Namespace) -> int:
               e.name AS name,
               e.official_question_count AS official_count,
               COUNT(DISTINCT q.id) AS available_count,
+              COUNT(
+                DISTINCT CASE
+                  WHEN q.quality_status = 'active'
+                   AND q.source_tier IN ('official_sample', 'open_license', 'user_owned', 'licensed_private')
+                   AND q.question_type = 'single_choice'
+                  THEN q.id
+                END
+              ) AS exam_ready_count,
               COUNT(DISTINCT sq.question_id) AS seen_count,
               COUNT(DISTINCT a.question_id) AS attempted_count,
               COUNT(DISTINCT CASE WHEN rq.next_review_at <= ? THEN rq.question_id END) AS due_review_count
@@ -142,13 +155,19 @@ def cmd_stats(args: argparse.Namespace) -> int:
         rounds = round(row["available_count"] / row["official_count"], 2) if row["official_count"] else 0
         unseen = row["available_count"] - row["seen_count"]
         print(
-            f"{row['exam']} | 총 {row['available_count']}문항 | 정규 {row['official_count']}문항 | "
+            f"{row['exam']} | 총 {row['available_count']}문항 | exam-ready {row['exam_ready_count']}문항 | 정규 {row['official_count']}문항 | "
             f"{rounds:g}회분 | 미노출 {unseen}문항 | 풀이 {row['attempted_count']}문항 | "
             f"복습예정 {row['due_review_count']}문항"
         )
     print("")
     for row in rows:
         print(f"{row['exam']} | {row['domain']} | {row['questions']}문항")
+    return 0
+
+
+def cmd_coverage(args: argparse.Namespace) -> int:
+    with ready_conn() as conn:
+        print(render_coverage_report(coverage_report(conn, args.exam)))
     return 0
 
 
@@ -175,7 +194,7 @@ def cmd_session_start(args: argparse.Namespace) -> int:
     with ready_conn() as conn:
         if args.regular:
             count = None
-            mode = "regular-mock"
+            mode = "exam-ready" if args.mode == "exam-ready" else "regular-mock"
         else:
             count = args.count or 20
             mode = args.mode

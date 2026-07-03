@@ -46,8 +46,13 @@
       "source_type": "user_owned_summary",
       "source_ref": "내 개인 노트 요약",
       "source_license": "user-owned",
+      "source_tier": "user_owned",
       "storage_policy": "private_only",
       "validity_status": "current",
+      "quality_status": "active",
+      "scope_version": "2026",
+      "official_checked_at": "2026-07-03",
+      "quality_notes": "내가 직접 검수한 개인 요약 문항",
       "provenance": {
         "note": "내가 직접 정리한 개인 요약에서 만든 문항"
       }

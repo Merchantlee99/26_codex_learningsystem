@@ -254,6 +254,8 @@ python3 -m cert_study session start --exam ADSP --count 20
 python3 -m cert_study session start --exam KR_INFO_PROCESSING_ENGINEER --count 20
 python3 -m cert_study session start --exam SQLD --count 10 --mode weak-cbt
 python3 -m cert_study session start --exam SQLD --count 10 --mode review-cbt
+python3 -m cert_study coverage --exam AWS_CLOUD_PRACTITIONER
+python3 -m cert_study session start --exam AWS_CLOUD_PRACTITIONER --regular --mode exam-ready
 ```
 
 답변을 기록하려면:
@@ -300,8 +302,13 @@ python3 -m cert_study bank import \
   "answer_json": { "choices": [2] },
   "source_type": "public_license",
   "source_license": "MIT",
+  "source_tier": "open_license",
   "storage_policy": "raw_allowed",
   "validity_status": "needs_official_check",
+  "quality_status": "needs_review",
+  "scope_version": "2026",
+  "official_checked_at": "",
+  "quality_notes": "공식 가이드 대조 전",
   "provenance": {
     "repository": "https://github.com/example/study-source",
     "path": "lib/exam-data.ts",
@@ -309,6 +316,14 @@ python3 -m cert_study bank import \
   }
 }
 ```
+
+`exam-ready` 모드는 내부 CBT 방식 그대로 동작하지만, 아래 조건을 만족하는 문항만 출제합니다.
+
+- `quality_status = active`
+- `source_tier = official_sample | open_license | user_owned | licensed_private`
+- `question_type = single_choice`
+
+즉, 합성 seed나 공식 검수 전 문항은 실전 모드에서 자동 제외됩니다. 부족한 과목은 먼저 `coverage`로 어느 영역이 비어 있는지 확인한 뒤 `private_banks/` 문제은행을 보강합니다.
 
 ## 과목 추가
 
@@ -349,6 +364,7 @@ cert_study/
   importer.py
   importers/
     gcp_gail.py
+  quality.py
   mcp_server.py
   notion_sync.py
   obsidian.py
@@ -391,6 +407,8 @@ AGENTS.md
 - 정보처리기사 합성 문제은행 100문항
 - 개인 JSON/YAML 문제은행 importer
 - 문제 출처/라이선스/보관정책/유효성 상태 메타데이터
+- 문제 품질 상태와 source tier 기반 `exam-ready` 출제 모드
+- 공식 도메인 비중 대비 문제은행 커버리지 리포트
 - GCP Generative AI Leader 로컬 자료 변환기
 - 미노출 우선, 복습 예정, 취약 개념 기반 출제 우선순위
 - CBT 세션 시작/답변/현재 문제/종료 명령

@@ -7,6 +7,7 @@ from typing import Any
 from .db import connect, initialize
 from .engine import create_session, finish_session, get_next_unanswered, submit_answer
 from .notion_sync import prepare_notion_sync_plan, render_plan
+from .quality import coverage_report, render_coverage_report
 from .reporting import render_question, render_session_report, write_study_outputs
 from .seed_public import seed_public_banks
 
@@ -48,12 +49,21 @@ TOOLS: list[dict[str, Any]] = [
                 "regular": {"type": "boolean", "default": False},
                 "mode": {
                     "type": "string",
-                    "enum": ["custom-cbt", "review-cbt", "weak-cbt"],
+                    "enum": ["custom-cbt", "review-cbt", "weak-cbt", "exam-ready"],
                     "default": "custom-cbt",
-                    "description": "custom-cbt는 미노출 우선, review-cbt는 복습 예정/오답 우선, weak-cbt는 취약 개념 우선입니다.",
+                    "description": "custom-cbt는 미노출 우선, review-cbt는 복습 예정/오답 우선, weak-cbt는 취약 개념 우선, exam-ready는 active 비합성 문제만 출제합니다.",
                 },
                 "seed": {"type": "integer"},
             },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "coverage_report",
+        "description": "공식 출제 비중 기준으로 exam-ready 문제은행 품질을 점검한다.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"exam": {"type": "string", "default": "SQLD"}},
             "additionalProperties": False,
         },
     },
@@ -149,6 +159,7 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
                     "name": row["name"],
                     "status": "available",
                     "available_questions": row["available_questions"],
+                    "exam_ready_questions": row["exam_ready_questions"],
                     "official_question_count": row["official_question_count"],
                     "bank_rounds": row["bank_rounds"],
                 }
@@ -159,6 +170,14 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
                       e.name,
                       e.official_question_count,
                       COUNT(q.id) AS available_questions,
+                      COUNT(
+                        CASE
+                          WHEN q.quality_status = 'active'
+                           AND q.source_tier IN ('official_sample', 'open_license', 'user_owned', 'licensed_private')
+                           AND q.question_type = 'single_choice'
+                          THEN 1
+                        END
+                      ) AS exam_ready_questions,
                       ROUND(COUNT(q.id) * 1.0 / e.official_question_count, 2) AS bank_rounds
                     FROM exams e
                     LEFT JOIN questions q ON q.exam_id = e.id
@@ -176,7 +195,7 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         }
         lines = ["현재 실제 출제 가능한 과목:"]
         lines.extend(
-            f"- {row['id']}: {row['name']} ({row['available_questions']}문항, {row['bank_rounds']:g}회분)"
+            f"- {row['id']}: {row['name']} ({row['available_questions']}문항, exam-ready {row['exam_ready_questions']}문항, {row['bank_rounds']:g}회분)"
             for row in supported
         )
         lines.append("")
@@ -188,14 +207,20 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         with ready_conn() as conn:
             regular = bool(arguments.get("regular", False))
             mode = str(arguments.get("mode", "custom-cbt"))
+            session_mode = "exam-ready" if regular and mode == "exam-ready" else ("regular-mock" if regular else mode)
             view = create_session(
                 conn,
                 exam_id=arguments.get("exam", "SQLD"),
                 count=None if regular else arguments.get("count", 20),
-                mode="regular-mock" if regular else mode,
+                mode=session_mode,
                 seed=arguments.get("seed"),
             )
         return text_result(f"session_id: {view.session_id}\n\n{render_question(view)}", {"session_id": view.session_id})
+
+    if name == "coverage_report":
+        with ready_conn() as conn:
+            report = coverage_report(conn, arguments.get("exam", "SQLD"))
+        return text_result(render_coverage_report(report), report)
 
     if name == "submit_answer":
         with ready_conn() as conn:

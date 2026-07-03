@@ -12,6 +12,7 @@ from cert_study.importer import import_bank_file
 from cert_study.importers.gcp_gail import convert_gail_practice_questions_text
 from cert_study.mcp_server import call_tool, handle_message
 from cert_study.notion_sync import prepare_notion_sync_plan
+from cert_study.quality import coverage_report
 from cert_study.reporting import render_session_report, write_session_report
 from cert_study.seed_public import seed_public_banks
 
@@ -395,6 +396,57 @@ export const PRACTICE_QUESTIONS: Question[] = [
         self.assertEqual(row["storage_policy"], "raw_allowed")
         self.assertEqual(row["validity_status"], "needs_official_check")
 
+    def test_exam_ready_mode_uses_only_active_internal_quality_questions(self) -> None:
+        payload = exam_ready_payload(
+            [
+                ("Q-ACTIVE-1", "open_license", "active", "current", 1),
+                ("Q-ACTIVE-2", "open_license", "active", "current", 2),
+                ("Q-SYNTHETIC", "synthetic", "active", "current", 3),
+                ("Q-REVIEW", "open_license", "needs_review", "needs_official_check", 4),
+            ]
+        )
+        path = Path(self.tmp.name) / "exam_ready_bank.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        import_bank_file(self.conn, path)
+
+        first = create_session(self.conn, exam_id="EXAM_READY_TEST", count=2, mode="exam-ready", seed=1)
+        selected = set(session_question_ids(self.conn, first.session_id))
+
+        self.assertEqual(selected, {"Q-ACTIVE-1", "Q-ACTIVE-2"})
+
+    def test_exam_ready_mode_fails_when_real_quality_bank_is_not_enough(self) -> None:
+        with self.assertRaisesRegex(ValueError, "exam-ready"):
+            create_session(self.conn, exam_id="SQLD", count=5, mode="exam-ready", seed=1)
+
+    def test_coverage_report_marks_exam_ready_gap(self) -> None:
+        payload = exam_ready_payload(
+            [
+                ("Q-ACTIVE-1", "open_license", "active", "current", 1),
+                ("Q-ACTIVE-2", "open_license", "active", "current", 2),
+                ("Q-REVIEW", "open_license", "needs_review", "needs_official_check", 3),
+            ],
+            official_count=5,
+        )
+        path = Path(self.tmp.name) / "coverage_bank.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        import_bank_file(self.conn, path)
+
+        report = coverage_report(self.conn, "EXAM_READY_TEST")
+
+        self.assertFalse(report["ready"])
+        self.assertEqual(report["exam_ready_questions"], 2)
+        self.assertEqual(report["official_question_count"], 5)
+        self.assertEqual(report["domains"][0]["status"], "부족")
+
+    def test_mcp_coverage_report_tool_exposes_quality_state(self) -> None:
+        call_tool("init_study_db", {})
+        result = call_tool("coverage_report", {"exam": "SQLD"})
+
+        text = result["content"][0]["text"]
+        self.assertIn("SQLD", text)
+        self.assertIn("exam-ready", text)
+        self.assertIn("부족", text)
+
     def test_mcp_finish_session_returns_obsidian_paths_without_default_notion_plan(self) -> None:
         call_tool("init_study_db", {})
         start = call_tool("start_session", {"exam": "SQLD", "count": 3, "seed": 5})
@@ -432,6 +484,49 @@ def answer_all_with_correct_answers(conn, session_id: str) -> None:
         if current is None:
             return
         submit_answer(conn, session_id, correct_answer_for(conn, current.question_id))
+
+
+def exam_ready_payload(
+    question_rows: list[tuple[str, str, str, str, int]],
+    *,
+    official_count: int = 2,
+) -> dict:
+    return {
+        "exam": {
+            "id": "EXAM_READY_TEST",
+            "name": "실전 품질 모드 테스트",
+            "official_question_count": official_count,
+            "official_duration_minutes": 10,
+            "pass_score": 60,
+            "domain_min_score": 0,
+        },
+        "domains": [{"id": "ER-D1", "name": "품질 영역", "official_weight": 100, "official_question_count": official_count}],
+        "concepts": [{"id": "ER-C1", "domain_id": "ER-D1", "name": "품질 개념", "review_note": "실전 출제 가능한 문제만 고른다."}],
+        "questions": [
+            {
+                "id": question_id,
+                "domain_id": "ER-D1",
+                "concept_id": "ER-C1",
+                "question_type": "single_choice",
+                "question_text": f"{question_id} 문항",
+                "choices": ["1", "2", "3", "4"],
+                "answer_json": {"choices": [answer]},
+                "explanation": "품질 상태 테스트 문항입니다.",
+                "difficulty": "medium",
+                "source_type": "public_license" if source_tier != "synthetic" else "synthetic",
+                "source_ref": "unit-test",
+                "source_license": "MIT" if source_tier != "synthetic" else "synthetic",
+                "source_tier": source_tier,
+                "storage_policy": "raw_allowed",
+                "validity_status": validity_status,
+                "quality_status": quality_status,
+                "scope_version": "2026",
+                "official_checked_at": "2026-07-03" if quality_status == "active" else "",
+                "quality_notes": "unit test",
+            }
+            for question_id, source_tier, quality_status, validity_status, answer in question_rows
+        ],
+    }
 
 
 if __name__ == "__main__":

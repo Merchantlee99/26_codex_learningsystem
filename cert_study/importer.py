@@ -100,11 +100,16 @@ def import_bank_file(conn: sqlite3.Connection, path: Path, *, private: bool = Fa
           source_type,
           source_ref,
           source_license,
+          source_tier,
           storage_policy,
           validity_status,
+          quality_status,
+          scope_version,
+          official_checked_at,
+          quality_notes,
           provenance_json
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [normalize_question(row, exam_id) for row in questions],
     )
@@ -153,6 +158,7 @@ def normalize_question(row: dict[str, Any], exam_id: str) -> tuple[Any, ...]:
     answer = normalize_single_choice_answer(row)
     source_type = require_text(row, "source_type")
     source_ref = require_text(row, "source_ref")
+    validity_status = optional_text(row, "validity_status", "current")
     return (
         require_text(row, "id"),
         exam_id,
@@ -168,8 +174,13 @@ def normalize_question(row: dict[str, Any], exam_id: str) -> tuple[Any, ...]:
         source_type,
         source_ref,
         optional_text(row, "source_license", default_source_license(source_type)),
+        optional_text(row, "source_tier", default_source_tier(source_type)),
         optional_text(row, "storage_policy", default_storage_policy(source_type)),
-        optional_text(row, "validity_status", "current"),
+        validity_status,
+        optional_text(row, "quality_status", default_quality_status(validity_status)),
+        str(row.get("scope_version", "")),
+        str(row.get("official_checked_at", "")),
+        str(row.get("quality_notes", "")),
         normalize_provenance_json(row, source_ref=source_ref),
     )
 
@@ -221,6 +232,28 @@ def default_storage_policy(source_type: str) -> str:
     if source_type == "official_sample_link":
         return "link_only"
     return "raw_allowed"
+
+
+def default_source_tier(source_type: str) -> str:
+    if source_type in {"synthetic", "synthetic_recent_scope"}:
+        return "synthetic"
+    if source_type in {"official_sample_link", "official_public_sample"}:
+        return "official_sample"
+    if source_type in {"public_license", "open_license"}:
+        return "open_license"
+    if source_type == "licensed_private":
+        return "licensed_private"
+    if source_type in PRIVATE_SOURCE_TYPES:
+        return "user_owned"
+    return "unknown"
+
+
+def default_quality_status(validity_status: str) -> str:
+    if validity_status in {"needs_official_check", "unknown"}:
+        return "needs_review"
+    if validity_status == "outdated":
+        return "outdated"
+    return "active"
 
 
 def normalize_provenance_json(row: dict[str, Any], *, source_ref: str) -> str:
