@@ -130,10 +130,11 @@ JSON 예시는 `examples/private_bank.example.json`에 있습니다.
 - 정답이 1~4 사이인지
 - 엔진을 확장하지 않았다면 모든 문제가 보기 4개인지
 - 정규 모드나 커스텀 모드에 필요한 문항 수가 충분한지
-- 공개 repo source type은 `synthetic`, `synthetic_recent_scope`, `official_sample_link`, `public_license` 중 하나인지
-- 개인 source type은 `user_owned_summary`, `personal_wrong_note`, `restored_summary` 중 하나인지
+- 공개 repo source type은 `synthetic`, `synthetic_recent_scope`, `official_sample_link`, `official_public_sample`, `public_license`, `open_license` 중 하나인지
+- 개인 source type은 `user_owned_summary`, `user_owned_raw`, `licensed_private`, `personal_wrong_note`, `restored_summary` 중 하나인지
 - 개인 source type은 반드시 `--private` 옵션으로만 import되는지
 - `actual_exam_dump`, `credential_assessment_material`, `commercial_book_verbatim`, `web_scraped_verbatim`은 거부되는지
+- 가능하면 `question_type`, `answer_json`, `source_license`, `storage_policy`, `validity_status`, `provenance`가 남아 있는지
 
 ## 추가하려는 과목
 
@@ -147,7 +148,7 @@ JSON 예시는 `examples/private_bank.example.json`에 있습니다.
 | `AWS_AI_PRACTITIONER` | AWS Certified AI Practitioner | 클라우드/AI | catalog만 있음 |
 | `AWS_CLOUD_PRACTITIONER` | AWS Certified Cloud Practitioner | 클라우드 기본 | catalog만 있음 |
 | `AWS_SOLUTIONS_ARCHITECT_ASSOCIATE` | AWS Certified Solutions Architect Associate | 클라우드 아키텍처 | catalog만 있음 |
-| `GCP_GENERATIVE_AI_LEADER` | Google Cloud Generative AI Leader | 클라우드/AI | catalog만 있음 |
+| `GCP_GENERATIVE_AI_LEADER` | Google Cloud Generative AI Leader | 클라우드/AI | 로컬 import-ready 변환기 있음 |
 
 공식 시험 코드가 바뀌더라도 내부 ID는 안정적으로 유지합니다. 공식 코드, 버전, 가이드 URL, 확인 날짜는 문제은행 파일의 메타데이터로 따로 저장합니다.
 
@@ -155,7 +156,7 @@ JSON 예시는 `examples/private_bank.example.json`에 있습니다.
 
 1. 국내 3개 과목은 현재 공개 합성 문제은행으로 CBT 흐름을 검증합니다.
 2. 개인이 가진 실제 공부 자료는 `private_banks/`로 가져와 로컬에서만 씁니다.
-3. AWS/GCP는 공식 exam guide와 샘플 문항 링크만 catalog에 두고, 실제 문항 원문은 복사하지 않습니다.
+3. AWS/GCP는 공개 repo에 원천 문항을 넣지 않고, 로컬 `private_banks/`에서 허용 라이선스 자료만 변환/import합니다.
 4. 과목이 더 늘어나면 Python seed를 계속 늘리기보다 JSON/YAML 데이터팩을 기본 입력으로 삼습니다.
 5. 새 과목을 추가할 때마다 작은 CBT 세션을 돌리는 공통 하네스 테스트를 추가합니다.
 

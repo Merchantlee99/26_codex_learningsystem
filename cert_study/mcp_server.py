@@ -167,9 +167,11 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
                     """
                 ).fetchall()
             ]
+        available_ids = {row["id"] for row in supported}
+        planned = [row for row in PLANNED_EXAMS if row["id"] not in available_ids]
         payload = {
             "available": supported,
-            "planned": PLANNED_EXAMS,
+            "planned": planned,
             "note": "현재 CBT 세션으로 실제 출제 가능한 문제은행은 available 항목뿐입니다. 공개 seed는 데모 1회분 수준이며, 실전 학습은 private_banks import로 확장합니다.",
         }
         lines = ["현재 실제 출제 가능한 과목:"]
@@ -179,7 +181,7 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         )
         lines.append("")
         lines.append("계획 단계 과목:")
-        lines.extend(f"- {row['id']}: {row['name']}" for row in PLANNED_EXAMS)
+        lines.extend(f"- {row['id']}: {row['name']}" for row in planned)
         return text_result("\n".join(lines), payload)
 
     if name == "start_session":

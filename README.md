@@ -45,7 +45,7 @@ flowchart TD
 
 첫 구현 대상은 SQLD였고, 지금은 ADsP와 정보처리기사까지 공개 합성 문제은행을 추가했습니다. 세션을 시작하면 시스템이 문제를 하나씩 내고, 사용자의 답을 기록하고, 마지막에 점수와 합격선, 영역별 결과, 틀린 문제, 내 답, 정답, 해설, 오답 이유, 반복 오답, 다음 복습일을 정리합니다.
 
-현재 공개 repo에서 CBT 세션을 시작할 수 있는 과목은 `SQLD`, `ADSP`, `KR_INFO_PROCESSING_ENGINEER`입니다. 이 문제들은 최근 공식 출제범위에 맞춘 합성 훈련 문항입니다. 공개 seed는 포트폴리오 데모용 1회분 수준이라, 실전 학습은 개인 로컬 `private_banks/`로 문제은행을 키우는 전제를 둡니다. 실제 기출, 족보, 유료 문제집 원문은 공개 repo에 넣지 않습니다. AWS, GCP 과목은 아직 공식 문제 링크/오답 기록 중심이며, 임의로 문제를 만들지 않도록 막아두었습니다.
+현재 공개 repo에 포함된 기본 CBT 과목은 `SQLD`, `ADSP`, `KR_INFO_PROCESSING_ENGINEER`입니다. 이 문제들은 최근 공식 출제범위에 맞춘 합성 훈련 문항입니다. 공개 seed는 포트폴리오 데모용 1회분 수준이라, 실전 학습은 개인 로컬 `private_banks/`로 문제은행을 키우는 전제를 둡니다. 실제 기출, 족보, 유료 문제집 원문은 공개 repo에 넣지 않습니다. AWS, GCP처럼 별도 자료를 확보한 과목은 로컬에서 import했을 때만 `available`로 뜨고 CBT 세션을 시작할 수 있습니다.
 
 | 구성 | 위치 | 역할 |
 | --- | --- | --- |
@@ -60,6 +60,7 @@ flowchart TD
 | Notion 동기화 하네스 | `cert_study/notion_sync.py` | 선택 기능. 기본값은 실제 쓰기 없이 계획만 생성 |
 | 공개 문제 seed | `cert_study/seed_sqld.py`, `cert_study/seed_adsp.py`, `cert_study/seed_info_processing.py` | SQLD 50개, ADsP 50개, 정보처리기사 100개 합성 훈련 문항 |
 | 개인 문제 importer | `cert_study/importer.py` | `private_banks/`의 JSON/YAML 문제은행을 로컬 DB에만 가져오는 도구 |
+| 자료 변환기 | `cert_study/importers/` | 로컬에 둔 허용 라이선스 자료를 import-ready JSON으로 바꾸는 도구 |
 | Codex skill | `skills/cert-study/SKILL.md` | Codex가 CBT 감독관처럼 행동하도록 하는 운영 규칙 |
 | Obsidian 문서 | `docs/obsidian-vault.md` | Markdown vault 구조와 개인 기록 경계 설명 |
 | 과목 확장 계획 | `docs/exam-expansion-plan.md` | 2~3개 이상 과목 확장 시 JSON/YAML importer로 전환하는 권장 설계 |
@@ -280,6 +281,35 @@ mkdir -p private_banks
 python3 -m cert_study bank import private_banks/my-bank.json --private
 ```
 
+허용 라이선스가 명확한 로컬 원천 자료는 변환기를 거쳐 import-ready JSON으로 바꿀 수 있습니다. 예를 들어 `gail-exam-preparation`의 `exam-data.ts`를 직접 확보해 둔 경우:
+
+```bash
+python3 -m cert_study bank convert-gcp-gail \
+  private_banks/raw_sources/gcp/gail_exam_preparation/lib/exam-data.ts \
+  private_banks/import_ready/gcp/gcp_generative_ai_leader_gail_exam_preparation.json
+
+python3 -m cert_study bank import \
+  private_banks/import_ready/gcp/gcp_generative_ai_leader_gail_exam_preparation.json
+```
+
+새 importer 형식은 기존 `answer: 1`도 계속 받지만, 가능하면 아래 메타데이터를 같이 둡니다.
+
+```json
+{
+  "question_type": "single_choice",
+  "answer_json": { "choices": [2] },
+  "source_type": "public_license",
+  "source_license": "MIT",
+  "storage_policy": "raw_allowed",
+  "validity_status": "needs_official_check",
+  "provenance": {
+    "repository": "https://github.com/example/study-source",
+    "path": "lib/exam-data.ts",
+    "official_doc": "https://cloud.google.com/..."
+  }
+}
+```
+
 ## 과목 추가
 
 이 공개 레포는 `SQLD`, `ADSP`, `KR_INFO_PROCESSING_ENGINEER`를 공개 합성 문제은행으로 둡니다.
@@ -317,6 +347,8 @@ cert_study/
   db.py
   engine.py
   importer.py
+  importers/
+    gcp_gail.py
   mcp_server.py
   notion_sync.py
   obsidian.py
@@ -358,6 +390,8 @@ AGENTS.md
 - ADsP 합성 문제은행 50문항
 - 정보처리기사 합성 문제은행 100문항
 - 개인 JSON/YAML 문제은행 importer
+- 문제 출처/라이선스/보관정책/유효성 상태 메타데이터
+- GCP Generative AI Leader 로컬 자료 변환기
 - 미노출 우선, 복습 예정, 취약 개념 기반 출제 우선순위
 - CBT 세션 시작/답변/현재 문제/종료 명령
 - SQLite 학습 원장
@@ -372,6 +406,7 @@ AGENTS.md
 아직 구현하지 않은 것:
 
 - 사용자 DB 선택 없는 직접 Notion MCP 쓰기 자동화
-- AWS / GCP 문제은행
+- AWS / GCP 원천 문제의 공개 repo 포함
+- 다중 선택형 문항 채점
 - 고급 spaced repetition 알고리즘
 - 웹/모바일 UI

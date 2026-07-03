@@ -40,13 +40,19 @@ CREATE TABLE IF NOT EXISTS questions (
   exam_id TEXT NOT NULL REFERENCES exams(id),
   domain_id TEXT NOT NULL REFERENCES domains(id),
   concept_id TEXT NOT NULL REFERENCES concepts(id),
+  question_type TEXT NOT NULL DEFAULT 'single_choice',
   question_text TEXT NOT NULL,
   choices_json TEXT NOT NULL,
+  answer_json TEXT NOT NULL DEFAULT '{"choices":[1]}',
   answer INTEGER NOT NULL CHECK(answer BETWEEN 1 AND 4),
   explanation TEXT NOT NULL,
   difficulty TEXT NOT NULL,
   source_type TEXT NOT NULL,
-  source_ref TEXT NOT NULL
+  source_ref TEXT NOT NULL,
+  source_license TEXT NOT NULL DEFAULT 'unknown',
+  storage_policy TEXT NOT NULL DEFAULT 'raw_allowed',
+  validity_status TEXT NOT NULL DEFAULT 'current',
+  provenance_json TEXT NOT NULL DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -75,6 +81,8 @@ CREATE TABLE IF NOT EXISTS attempts (
   question_id TEXT NOT NULL REFERENCES questions(id),
   user_answer INTEGER NOT NULL CHECK(user_answer BETWEEN 1 AND 4),
   correct_answer INTEGER NOT NULL CHECK(correct_answer BETWEEN 1 AND 4),
+  user_answer_json TEXT NOT NULL DEFAULT '{}',
+  correct_answer_json TEXT NOT NULL DEFAULT '{}',
   is_correct INTEGER NOT NULL CHECK(is_correct IN (0, 1)),
   mistake_reason TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
@@ -93,6 +101,27 @@ CREATE TABLE IF NOT EXISTS review_queue (
 );
 """
 
+TRIGGERS = """
+CREATE TRIGGER IF NOT EXISTS questions_backfill_answer_json_after_insert
+AFTER INSERT ON questions
+WHEN NEW.question_type = 'single_choice'
+  AND (NEW.answer_json = '{"choices":[1]}' OR NEW.answer_json = '')
+BEGIN
+  UPDATE questions
+  SET answer_json = '{"choices":[' || NEW.answer || ']}'
+  WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS questions_backfill_answer_json_after_update
+AFTER UPDATE OF answer ON questions
+WHEN NEW.question_type = 'single_choice'
+BEGIN
+  UPDATE questions
+  SET answer_json = '{"choices":[' || NEW.answer || ']}'
+  WHERE id = NEW.id;
+END;
+"""
+
 
 def connect(path: Path | None = None) -> sqlite3.Connection:
     conn = sqlite3.connect(path or db_path())
@@ -103,5 +132,62 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
 
 def initialize(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    ensure_schema_extensions(conn)
+    conn.executescript(TRIGGERS)
+    backfill_v2_columns(conn)
     conn.commit()
 
+
+def ensure_schema_extensions(conn: sqlite3.Connection) -> None:
+    ensure_columns(
+        conn,
+        "questions",
+        {
+            "question_type": "TEXT NOT NULL DEFAULT 'single_choice'",
+            "answer_json": "TEXT NOT NULL DEFAULT '{\"choices\":[1]}'",
+            "source_license": "TEXT NOT NULL DEFAULT 'unknown'",
+            "storage_policy": "TEXT NOT NULL DEFAULT 'raw_allowed'",
+            "validity_status": "TEXT NOT NULL DEFAULT 'current'",
+            "provenance_json": "TEXT NOT NULL DEFAULT '{}'",
+        },
+    )
+    ensure_columns(
+        conn,
+        "attempts",
+        {
+            "user_answer_json": "TEXT NOT NULL DEFAULT '{}'",
+            "correct_answer_json": "TEXT NOT NULL DEFAULT '{}'",
+        },
+    )
+
+
+def ensure_columns(conn: sqlite3.Connection, table: str, definitions: dict[str, str]) -> None:
+    existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    for name, definition in definitions.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+
+
+def backfill_v2_columns(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        UPDATE questions
+        SET answer_json = '{"choices":[' || answer || ']}'
+        WHERE question_type = 'single_choice'
+          AND (answer_json IS NULL OR answer_json = '' OR answer_json = '{"choices":[1]}')
+        """
+    )
+    conn.execute(
+        """
+        UPDATE attempts
+        SET user_answer_json = '{"choices":[' || user_answer || ']}'
+        WHERE user_answer_json IS NULL OR user_answer_json = '' OR user_answer_json = '{}'
+        """
+    )
+    conn.execute(
+        """
+        UPDATE attempts
+        SET correct_answer_json = '{"choices":[' || correct_answer || ']}'
+        WHERE correct_answer_json IS NULL OR correct_answer_json = '' OR correct_answer_json = '{}'
+        """
+    )

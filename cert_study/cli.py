@@ -7,6 +7,7 @@ from pathlib import Path
 from .db import connect, initialize
 from .engine import create_session, finish_session, get_next_unanswered, submit_answer, today_iso
 from .importer import import_bank_file
+from .importers.gcp_gail import SOURCE_REPOSITORY, convert_gail_exam_data_file
 from .notion_sync import prepare_notion_sync_plan, render_plan
 from .paths import db_path
 from .reporting import render_question, render_session_report, write_study_outputs
@@ -41,6 +42,15 @@ def build_parser() -> argparse.ArgumentParser:
     bank_import.add_argument("path", type=Path)
     bank_import.add_argument("--private", action="store_true", help="개인 소유 요약/오답 기반 문제은행 import를 허용합니다.")
     bank_import.set_defaults(func=cmd_bank_import)
+
+    bank_convert_gcp = bank_sub.add_parser(
+        "convert-gcp-gail",
+        help="로컬 GCP Generative AI Leader exam-data.ts를 import-ready JSON으로 변환합니다.",
+    )
+    bank_convert_gcp.add_argument("source", type=Path, help="gail-exam-preparation/lib/exam-data.ts 경로")
+    bank_convert_gcp.add_argument("output", type=Path, help="생성할 import-ready JSON 경로")
+    bank_convert_gcp.add_argument("--source-ref", default=SOURCE_REPOSITORY, help="출처로 남길 URL 또는 식별자")
+    bank_convert_gcp.set_defaults(func=cmd_bank_convert_gcp_gail)
 
     session = sub.add_parser("session", help="CBT 세션을 관리합니다.")
     session_sub = session.add_subparsers(required=True)
@@ -148,6 +158,15 @@ def cmd_bank_import(args: argparse.Namespace) -> int:
     print(
         f"문제은행 import 완료: {result['exam_id']} "
         f"도메인 {result['domains']}개, 개념 {result['concepts']}개, 문항 {result['questions']}개"
+    )
+    return 0
+
+
+def cmd_bank_convert_gcp_gail(args: argparse.Namespace) -> int:
+    payload = convert_gail_exam_data_file(args.source, args.output, source_ref=args.source_ref)
+    print(
+        f"GCP Generative AI Leader 변환 완료: {args.output} "
+        f"개념 {len(payload['concepts'])}개, 문항 {len(payload['questions'])}개"
     )
     return 0
 

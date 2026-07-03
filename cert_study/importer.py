@@ -6,8 +6,21 @@ from pathlib import Path
 from typing import Any
 
 
-PUBLIC_SOURCE_TYPES = {"synthetic", "synthetic_recent_scope", "official_sample_link", "public_license"}
-PRIVATE_SOURCE_TYPES = {"user_owned_summary", "personal_wrong_note", "restored_summary"}
+PUBLIC_SOURCE_TYPES = {
+    "synthetic",
+    "synthetic_recent_scope",
+    "official_sample_link",
+    "official_public_sample",
+    "public_license",
+    "open_license",
+}
+PRIVATE_SOURCE_TYPES = {
+    "user_owned_summary",
+    "user_owned_raw",
+    "licensed_private",
+    "personal_wrong_note",
+    "restored_summary",
+}
 FORBIDDEN_SOURCE_TYPES = {
     "actual_exam_dump",
     "credential_assessment_material",
@@ -72,8 +85,26 @@ def import_bank_file(conn: sqlite3.Connection, path: Path, *, private: bool = Fa
     conn.executemany(
         """
         INSERT OR REPLACE INTO questions
-        (id, exam_id, domain_id, concept_id, question_text, choices_json, answer, explanation, difficulty, source_type, source_ref)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (
+          id,
+          exam_id,
+          domain_id,
+          concept_id,
+          question_type,
+          question_text,
+          choices_json,
+          answer_json,
+          answer,
+          explanation,
+          difficulty,
+          source_type,
+          source_ref,
+          source_license,
+          storage_policy,
+          validity_status,
+          provenance_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [normalize_question(row, exam_id) for row in questions],
     )
@@ -113,25 +144,97 @@ def validate_question_sources(questions: list[Any], *, private: bool) -> None:
 
 
 def normalize_question(row: dict[str, Any], exam_id: str) -> tuple[Any, ...]:
+    question_type = str(row.get("question_type", "single_choice")).strip() or "single_choice"
+    if question_type != "single_choice":
+        raise ValueError(f"{row.get('id', '<unknown>')} 현재 importer는 single_choice만 CBT로 가져옵니다.")
     choices = row.get("choices")
     if not isinstance(choices, list) or len(choices) != 4 or not all(isinstance(item, str) for item in choices):
         raise ValueError(f"{row.get('id', '<unknown>')} choices는 문자열 4개여야 합니다.")
-    answer = int(row.get("answer", 0))
-    if answer < 1 or answer > 4:
-        raise ValueError(f"{row.get('id', '<unknown>')} answer는 1~4여야 합니다.")
+    answer = normalize_single_choice_answer(row)
+    source_type = require_text(row, "source_type")
+    source_ref = require_text(row, "source_ref")
     return (
         require_text(row, "id"),
         exam_id,
         require_text(row, "domain_id"),
         require_text(row, "concept_id"),
+        question_type,
         require_text(row, "question_text"),
         json.dumps(choices, ensure_ascii=False),
+        json.dumps({"choices": [answer]}, ensure_ascii=False),
         answer,
         require_text(row, "explanation"),
         str(row.get("difficulty", "medium")),
-        require_text(row, "source_type"),
-        require_text(row, "source_ref"),
+        source_type,
+        source_ref,
+        optional_text(row, "source_license", default_source_license(source_type)),
+        optional_text(row, "storage_policy", default_storage_policy(source_type)),
+        optional_text(row, "validity_status", "current"),
+        normalize_provenance_json(row, source_ref=source_ref),
     )
+
+
+def normalize_single_choice_answer(row: dict[str, Any]) -> int:
+    answer_from_int = row.get("answer")
+    answer_json = row.get("answer_json")
+    answer_from_json: int | None = None
+    if answer_json is not None:
+        if isinstance(answer_json, str):
+            try:
+                answer_json = json.loads(answer_json)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"{row.get('id', '<unknown>')} answer_json은 JSON object여야 합니다.") from exc
+        if not isinstance(answer_json, dict):
+            raise ValueError(f"{row.get('id', '<unknown>')} answer_json은 object여야 합니다.")
+        choices = answer_json.get("choices")
+        if not isinstance(choices, list) or len(choices) != 1:
+            raise ValueError(f"{row.get('id', '<unknown>')} answer_json.choices는 정답 번호 1개여야 합니다.")
+        answer_from_json = int(choices[0])
+
+    if answer_from_int is None:
+        answer = answer_from_json or 0
+    elif answer_from_json is None:
+        answer = int(answer_from_int)
+    else:
+        answer = int(answer_from_int)
+        if answer != answer_from_json:
+            raise ValueError(f"{row.get('id', '<unknown>')} answer와 answer_json이 서로 다릅니다.")
+
+    if answer < 1 or answer > 4:
+        raise ValueError(f"{row.get('id', '<unknown>')} answer는 1~4여야 합니다.")
+    return answer
+
+
+def default_source_license(source_type: str) -> str:
+    if source_type in {"synthetic", "synthetic_recent_scope"}:
+        return "synthetic"
+    if source_type in {"official_sample_link", "official_public_sample"}:
+        return "official-public"
+    if source_type in PRIVATE_SOURCE_TYPES:
+        return "user-owned"
+    return "unknown"
+
+
+def default_storage_policy(source_type: str) -> str:
+    if source_type in PRIVATE_SOURCE_TYPES:
+        return "private_only"
+    if source_type == "official_sample_link":
+        return "link_only"
+    return "raw_allowed"
+
+
+def normalize_provenance_json(row: dict[str, Any], *, source_ref: str) -> str:
+    value = row.get("provenance", row.get("provenance_json", {"source_ref": source_ref}))
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            parsed = {"note": value}
+    elif isinstance(value, dict):
+        parsed = value
+    else:
+        raise ValueError(f"{row.get('id', '<unknown>')} provenance는 object 또는 JSON 문자열이어야 합니다.")
+    return json.dumps(parsed, ensure_ascii=False, sort_keys=True)
 
 
 def require_dict(payload: dict[str, Any], key: str) -> dict[str, Any]:
@@ -154,3 +257,9 @@ def require_text(payload: dict[str, Any], key: str) -> str:
         raise ValueError(f"{key}는 비어 있지 않은 문자열이어야 합니다.")
     return value
 
+
+def optional_text(payload: dict[str, Any], key: str, default: str) -> str:
+    value = payload.get(key, default)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{key}는 비어 있지 않은 문자열이어야 합니다.")
+    return value

@@ -312,12 +312,25 @@ def submit_answer(conn: sqlite3.Connection, session_id: str, answer: int) -> tup
     if question is None:
         raise RuntimeError(f"missing question: {current.question_id}")
     is_correct = int(answer == question["answer"])
+    user_answer_json = json.dumps({"choices": [answer]}, ensure_ascii=False)
+    correct_answer_json = json.dumps({"choices": [question["answer"]]}, ensure_ascii=False)
     attempt_id = f"att-{uuid.uuid4().hex[:12]}"
     conn.execute(
         """
         INSERT INTO attempts
-        (id, session_id, question_id, user_answer, correct_answer, is_correct, mistake_reason, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (
+          id,
+          session_id,
+          question_id,
+          user_answer,
+          correct_answer,
+          user_answer_json,
+          correct_answer_json,
+          is_correct,
+          mistake_reason,
+          created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             attempt_id,
@@ -325,6 +338,8 @@ def submit_answer(conn: sqlite3.Connection, session_id: str, answer: int) -> tup
             current.question_id,
             answer,
             question["answer"],
+            user_answer_json,
+            correct_answer_json,
             is_correct,
             "" if is_correct else infer_mistake_reason(conn, current.question_id),
             now_iso(),

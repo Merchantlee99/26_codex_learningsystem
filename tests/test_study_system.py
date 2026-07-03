@@ -9,6 +9,7 @@ from pathlib import Path
 from cert_study.db import connect, initialize
 from cert_study.engine import create_session, finish_session, get_next_unanswered, submit_answer
 from cert_study.importer import import_bank_file
+from cert_study.importers.gcp_gail import convert_gail_practice_questions_text
 from cert_study.mcp_server import call_tool, handle_message
 from cert_study.notion_sync import prepare_notion_sync_plan
 from cert_study.reporting import render_session_report, write_session_report
@@ -256,7 +257,8 @@ class StudySystemTests(unittest.TestCase):
         self.assertIn("문제 N개 줘", skill_text)
         self.assertIn("일반 답변으로 문제를 만들지 말고", skill_text)
         self.assertIn("세션 종료 전에는 정답표", skill_text)
-        self.assertIn("현재 공개 합성 문제은행으로 출제 가능한 과목은 SQLD, ADsP, 정보처리기사", skill_text)
+        self.assertIn("공개 repo에 기본 포함된 합성 문제은행은 SQLD, ADsP, 정보처리기사", skill_text)
+        self.assertIn("`available`에 없으면 문제를 임의 생성하지 말고", skill_text)
 
     def test_private_bank_import_requires_private_flag(self) -> None:
         payload = {
@@ -294,6 +296,104 @@ class StudySystemTests(unittest.TestCase):
         self.assertEqual(result["exam_id"], "PRIVATE_TEST")
         count = self.conn.execute("SELECT COUNT(*) AS n FROM questions WHERE exam_id = 'PRIVATE_TEST'").fetchone()["n"]
         self.assertEqual(count, 1)
+
+    def test_importer_accepts_v2_metadata_and_keeps_cbt_flow(self) -> None:
+        payload = {
+            "exam": {
+                "id": "V2_TEST",
+                "name": "v2 문제은행 테스트",
+                "official_question_count": 1,
+                "official_duration_minutes": 10,
+                "pass_score": 60,
+                "domain_min_score": 0,
+            },
+            "domains": [{"id": "V2-D1", "name": "공개 라이선스 영역", "official_weight": 100, "official_question_count": 1}],
+            "concepts": [{"id": "V2-C1", "domain_id": "V2-D1", "name": "출처 메타데이터", "review_note": "출처와 보관 정책을 확인한다."}],
+            "questions": [
+                {
+                    "id": "V2-Q1",
+                    "domain_id": "V2-D1",
+                    "concept_id": "V2-C1",
+                    "question_type": "single_choice",
+                    "question_text": "MIT 라이선스 공개 연습문항을 가져올 때 남겨야 하는 정보는?",
+                    "choices": ["원문 삭제 여부만", "출처/라이선스/보관정책/유효성 상태", "정답 번호만", "세션 점수만"],
+                    "answer_json": {"choices": [2]},
+                    "explanation": "공개 라이선스라도 출처, 라이선스, 보관 정책, 유효성 상태를 함께 남겨야 한다.",
+                    "difficulty": "easy",
+                    "source_type": "public_license",
+                    "source_ref": "unit-test",
+                    "source_license": "MIT",
+                    "storage_policy": "raw_allowed",
+                    "validity_status": "current",
+                    "provenance": {"repository": "unit-test/repo", "path": "exam-data.ts"},
+                }
+            ],
+        }
+        path = Path(self.tmp.name) / "v2_bank.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+        import_bank_file(self.conn, path)
+
+        row = self.conn.execute("SELECT * FROM questions WHERE id = 'V2-Q1'").fetchone()
+        self.assertEqual(row["answer"], 2)
+        self.assertEqual(json.loads(row["answer_json"]), {"choices": [2]})
+        self.assertEqual(row["question_type"], "single_choice")
+        self.assertEqual(row["source_license"], "MIT")
+        self.assertEqual(row["storage_policy"], "raw_allowed")
+        self.assertEqual(row["validity_status"], "current")
+        self.assertEqual(json.loads(row["provenance_json"])["repository"], "unit-test/repo")
+
+        first = create_session(self.conn, exam_id="V2_TEST", count=1, mode="custom-cbt", seed=1)
+        is_correct, next_view = submit_answer(self.conn, first.session_id, 2)
+        result = finish_session(self.conn, first.session_id)
+
+        self.assertTrue(is_correct)
+        self.assertIsNone(next_view)
+        self.assertEqual(result["correct"], 1)
+
+    def test_gcp_gail_converter_outputs_importable_v2_payload(self) -> None:
+        ts_text = """
+export const PRACTICE_QUESTIONS: Question[] = [
+  {
+    id: "q1",
+    sectionId: "fundamentals",
+    topicId: "llm-basics",
+    question: "What is the best use of a foundation model?",
+    options: [
+      "Only fixed rule execution",
+      "Reusable base for many generative AI tasks",
+      "Network routing",
+      "Storage lifecycle management"
+    ],
+    correctIndex: 1,
+    explanation: "A foundation model is reused across many downstream generative AI tasks.",
+    whyOthersWrong: [
+      "Fixed rules are not foundation models.",
+      "Network routing is unrelated.",
+      "Storage lifecycle management is unrelated."
+    ],
+    officialDoc: "https://cloud.google.com/vertex-ai/generative-ai/docs/learn/overview",
+    difficulty: "easy",
+  },
+]
+"""
+        payload = convert_gail_practice_questions_text(
+            ts_text,
+            source_ref="https://github.com/ludovicobesana/gail-exam-preparation",
+        )
+        path = Path(self.tmp.name) / "gcp_gail.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+        result = import_bank_file(self.conn, path)
+        row = self.conn.execute("SELECT * FROM questions WHERE id = 'GCP_GAIL_001_fundamentals_llm_basics_q1'").fetchone()
+
+        self.assertEqual(result["exam_id"], "GCP_GENERATIVE_AI_LEADER")
+        self.assertEqual(result["questions"], 1)
+        self.assertEqual(row["answer"], 2)
+        self.assertEqual(row["source_type"], "public_license")
+        self.assertEqual(row["source_license"], "MIT")
+        self.assertEqual(row["storage_policy"], "raw_allowed")
+        self.assertEqual(row["validity_status"], "needs_official_check")
 
     def test_mcp_finish_session_returns_obsidian_paths_without_default_notion_plan(self) -> None:
         call_tool("init_study_db", {})
