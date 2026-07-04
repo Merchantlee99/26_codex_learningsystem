@@ -7,6 +7,12 @@ from pathlib import Path
 from .db import connect, initialize
 from .engine import create_session, finish_session, get_next_unanswered, submit_answer, today_iso
 from .importer import import_bank_file
+from .importers.chathuranga_saa import (
+    convert_chathuranga_saa_markdown,
+    inspect_chathuranga_saa_markdown,
+    render_chathuranga_convert_report,
+    render_chathuranga_inspect_report,
+)
 from .importers.gcp_gail import SOURCE_REPOSITORY, convert_gail_exam_data_file
 from .importers.info_processing import (
     convert_info_processing_archives,
@@ -131,6 +137,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="파일 한 개에서 최소 몇 문항 이상 변환되어야 포함할지 정합니다. 기본값은 1입니다.",
     )
     bank_convert_kdata.set_defaults(func=cmd_bank_convert_kdata)
+
+    bank_inspect_saa = bank_sub.add_parser(
+        "inspect-chathuranga-saa",
+        help="MIT 라이선스 Chathuranga SAA-C03 Markdown 원천의 변환 가능 문항 수를 점검합니다.",
+    )
+    bank_inspect_saa.add_argument("source", type=Path)
+    bank_inspect_saa.set_defaults(func=cmd_bank_inspect_chathuranga_saa)
+
+    bank_convert_saa = bank_sub.add_parser(
+        "convert-chathuranga-saa",
+        help="MIT 라이선스 Chathuranga SAA-C03 Markdown 원천을 내부 CBT import-ready JSON으로 변환합니다.",
+    )
+    bank_convert_saa.add_argument("source", type=Path)
+    bank_convert_saa.add_argument("output", type=Path)
+    bank_convert_saa.add_argument(
+        "--mark-active",
+        action="store_true",
+        help="검수 완료로 보고 exam-ready 후보가 되도록 active/current 상태로 저장합니다.",
+    )
+    bank_convert_saa.add_argument("--checked-at", default="", help="--mark-active 사용 시 검수일. 예: 2026-07-04")
+    bank_convert_saa.set_defaults(func=cmd_bank_convert_chathuranga_saa)
 
     session = sub.add_parser("session", help="CBT 세션을 관리합니다.")
     session_sub = session.add_subparsers(required=True)
@@ -308,6 +335,22 @@ def cmd_bank_convert_kdata(args: argparse.Namespace) -> int:
         min_questions=args.min_questions,
     )
     print(render_kdata_convert_report(report))
+    return 0
+
+
+def cmd_bank_inspect_chathuranga_saa(args: argparse.Namespace) -> int:
+    print(render_chathuranga_inspect_report(inspect_chathuranga_saa_markdown(args.source)))
+    return 0
+
+
+def cmd_bank_convert_chathuranga_saa(args: argparse.Namespace) -> int:
+    report = convert_chathuranga_saa_markdown(
+        args.source,
+        args.output,
+        mark_active=bool(args.mark_active),
+        checked_at=args.checked_at,
+    )
+    print(render_chathuranga_convert_report(report))
     return 0
 
 

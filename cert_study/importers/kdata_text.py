@@ -243,6 +243,8 @@ def parse_kdata_text_questions(
         parsed = parse_leading_choice_question_chunk(normalized_chunk) or parse_question_chunk(number, normalized_chunk)
         if parsed is None:
             continue
+        parsed["question_text"] = clean_extracted_text(parsed["question_text"])
+        parsed["choices"] = [clean_extracted_text(choice) for choice in parsed["choices"]]
         domain = domain_for_question_number(profile, number)
         answer = answers[number]
         questions.append(
@@ -285,9 +287,15 @@ def split_question_chunks(text: str) -> list[tuple[int, str]]:
     current_lines: list[str] = []
 
     for line in lines:
-        if re.match(r"^\s*(정답|답안|해답|answer)\b", line, re.I):
+        if re.match(r"^\s*(정답|답안|해답|answer)\s*$", line, re.I):
             break
-        marker = re.match(r"^\s*(?:문제\s*)?(\d{1,3})[.]\s*(.*)$", line)
+        if re.match(r"^\s*(정답표|답안표)\s*$", line, re.I):
+            break
+        if current_number is not None and current_number > 1 and re.match(r"^\s*1\s*[.)]\s*정\s*답\s*[:：]", line):
+            break
+        marker = re.match(r"^\s*(?:■\s*)?문제\s*(\d{1,3})[.)]\s*(.*)$", line)
+        if marker is None:
+            marker = re.match(r"^\s*(?:■\s*)?(\d{1,3})[.]\s*(.*)$", line)
         marker_number = int(marker.group(1)) if marker else None
         starts_next_question = (
             marker is not None
@@ -313,7 +321,9 @@ def parse_answer_map(text: str) -> dict[int, int]:
     answers = parse_answer_table(answer_text)
     for number, answer in re.findall(r"(?<!\d)(\d{1,3})\s*[.)]\s*([1-4A-Da-d①②③④])", answer_text):
         answers[int(number)] = normalize_answer_token(answer)
-    for number, answer in re.findall(r"(?:문제\s*)?(\d{1,3})\s*(?:번)?\s*정답\s*[:：]?\s*([1-4A-Da-d①②③④])", text):
+    for number, answer in re.findall(r"(?:문제\s*)?(\d{1,3})\s*(?:번)?\s*[.)]?\s*정\s*답\s*[:：]?\s*([1-4A-Da-d①②③④])", text):
+        answers[int(number)] = normalize_answer_token(answer)
+    for number, answer in re.findall(r"(?:문제\s*)?(\d{1,3})\s*(?:번)?\s*[.)]?\s*정답\s*[:：]?\s*([1-4A-Da-d①②③④])", text):
         answers[int(number)] = normalize_answer_token(answer)
     if not answers:
         bare = re.search(r"(?:정답|답안|해답|answer)\s*[:：]\s*([1-4A-Da-d①②③④])", text, re.I)
@@ -390,6 +400,14 @@ def normalize_space_preserving_markers(text: str) -> str:
 
 def normalize_space(text: str) -> str:
     return re.sub(r"\s+", " ", text.replace("\xa0", " ")).strip()
+
+
+def clean_extracted_text(text: str) -> str:
+    cleaned = text
+    cleaned = re.sub(r"\s*정\s*답\s*확\s*인\s*[🌼⭐★]*", " ", cleaned)
+    cleaned = re.sub(r"\s*(해설|풀이|답안)\s*(보기|확인)\s*[🌼⭐★]*", " ", cleaned)
+    cleaned = cleaned.replace("🌼", " ")
+    return normalize_space(cleaned)
 
 
 def exam_payload(profile: ExamProfile) -> dict[str, Any]:

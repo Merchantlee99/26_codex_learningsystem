@@ -10,6 +10,7 @@ from pathlib import Path
 from cert_study.db import connect, initialize
 from cert_study.engine import create_session, finish_session, get_next_unanswered, submit_answer
 from cert_study.importer import import_bank_file
+from cert_study.importers.chathuranga_saa import convert_chathuranga_saa_markdown, inspect_chathuranga_saa_markdown
 from cert_study.importers.gcp_gail import convert_gail_practice_questions_text
 from cert_study.importers.info_processing import inspect_info_processing_archives, parse_info_processing_exam_blocks
 from cert_study.importers.kdata_text import convert_kdata_text_sources, inspect_kdata_text_sources
@@ -656,6 +657,100 @@ D. 트랜잭션을 취소한다.
         row = self.conn.execute("SELECT domain_id, concept_id FROM questions WHERE id LIKE 'ADSP_SRC_%'").fetchone()
         self.assertEqual(row["domain_id"], "ADSP-D1")
         self.assertEqual(row["concept_id"], "ADSP-SRC-C-D1")
+
+    def test_kdata_text_converter_handles_tistory_question_and_answer_section(self) -> None:
+        source = Path(self.tmp.name) / "sqld_tistory.html"
+        source.write_text(
+            """
+<h3>SQLD 56회 1과목</h3>
+<p>■ 문제 1. 스키마의 종류로 옳지 않은 것은? 정답확인 🌼</p>
+<p>① 응용 스키마</p>
+<p>② 외부 스키마</p>
+<p>③ 개념 스키마</p>
+<p>④ 내부 스키마</p>
+<p>문제 2. 우선순위가 가장 높은 연산자는?</p>
+<p>1) 비교</p>
+<p>2) 괄호</p>
+<p>3) AND</p>
+<p>4) OR</p>
+<p>1. 정답 : 1</p>
+<p>2. 정답 : 2</p>
+""",
+            encoding="utf-8",
+        )
+        output = Path(self.tmp.name) / "sqld_tistory.json"
+
+        report = convert_kdata_text_sources(source, output, exam_id="SQLD")
+        import_result = import_bank_file(self.conn, output, private=True)
+
+        self.assertEqual(report["converted_questions"], 2)
+        self.assertEqual(import_result["questions"], 2)
+        row = self.conn.execute(
+            "SELECT answer, question_text FROM questions WHERE id LIKE 'SQLD_SRC_%' ORDER BY id LIMIT 1"
+        ).fetchone()
+        self.assertEqual(row["answer"], 1)
+        self.assertNotIn("정답확인", row["question_text"])
+        self.assertNotIn("🌼", row["question_text"])
+
+    def test_chathuranga_saa_markdown_converter_imports_single_choice_questions(self) -> None:
+        source_dir = Path(self.tmp.name) / "chathuranga"
+        source_dir.mkdir()
+        source = source_dir / "PRACTICE-QUESTIONS.md"
+        source.write_text(
+            """
+# Security - Practice Questions
+
+### Question 1
+A company wants full control over encryption keys for S3 data. Which option should be used?
+
+A. SSE-S3
+B. SSE-KMS with AWS managed keys
+C. SSE-KMS with Customer Managed Keys
+D. SSE-C
+
+<details>
+<summary>Show Answer</summary>
+
+**Answer: C**
+
+**Explanation:**
+Customer managed KMS keys provide control over key policies and rotation.
+</details>
+
+---
+
+### Question 2
+Lambda needs to write CloudWatch Logs. Which permissions are required? (Choose 2)
+
+A. logs:CreateLogStream
+B. logs:PutLogEvents
+C. logs:GetMetricData
+D. logs:StartQuery
+
+<details>
+<summary>Show Answer</summary>
+
+**Answer: A, B**
+</details>
+""",
+            encoding="utf-8",
+        )
+        output = Path(self.tmp.name) / "saa_chathuranga.json"
+
+        inspect_report = inspect_chathuranga_saa_markdown(source_dir)
+        convert_report = convert_chathuranga_saa_markdown(source_dir, output, mark_active=True, checked_at="2026-07-04")
+        import_result = import_bank_file(self.conn, output)
+
+        self.assertEqual(inspect_report["convertible_questions"], 1)
+        self.assertEqual(convert_report["converted_questions"], 1)
+        self.assertEqual(import_result["exam_id"], "AWS_SOLUTIONS_ARCHITECT_ASSOCIATE")
+        row = self.conn.execute(
+            "SELECT answer, source_type, source_license, quality_status FROM questions WHERE id LIKE 'AWS_SAA_CHATH_%'"
+        ).fetchone()
+        self.assertEqual(row["answer"], 3)
+        self.assertEqual(row["source_type"], "public_license")
+        self.assertEqual(row["source_license"], "MIT")
+        self.assertEqual(row["quality_status"], "active")
 
     def test_mcp_finish_session_returns_obsidian_paths_without_default_notion_plan(self) -> None:
         call_tool("init_study_db", {})

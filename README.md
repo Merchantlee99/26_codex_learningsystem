@@ -296,6 +296,27 @@ python3 -m cert_study bank import \
 python3 -m cert_study bank promote-gcp-gail --checked-at 2026-07-03
 ```
 
+AWS Solutions Architect Associate처럼 허용 라이선스가 있는 SAA-C03 Markdown 원천을 로컬에 확보했다면 전용 변환기로 내부 CBT 문제은행을 만들 수 있습니다. 이 변환기는 단일 선택형 문항만 가져오고, 다중 선택형 문항은 현재 엔진이 지원할 때까지 제외합니다.
+
+```bash
+python3 -m cert_study bank inspect-chathuranga-saa \
+  private_banks/raw_sources/aws/chathuranga_saa_c03
+
+python3 -m cert_study bank convert-chathuranga-saa \
+  private_banks/raw_sources/aws/chathuranga_saa_c03 \
+  private_banks/import_ready/aws/aws_saa_chathuranga_saa_c03.json \
+  --mark-active \
+  --checked-at 2026-07-04
+
+python3 -m cert_study bank import \
+  private_banks/import_ready/aws/aws_saa_chathuranga_saa_c03.json
+
+python3 -m cert_study session start \
+  --exam AWS_SOLUTIONS_ARCHITECT_ASSOCIATE \
+  --count 20 \
+  --mode exam-ready
+```
+
 새 importer 형식은 기존 `answer: 1`도 계속 받지만, 가능하면 아래 메타데이터를 같이 둡니다.
 
 ```json
@@ -399,6 +420,7 @@ cert_study/
   engine.py
   importer.py
   importers/
+    chathuranga_saa.py
     gcp_gail.py
     info_processing.py
     kdata_text.py
@@ -449,6 +471,7 @@ AGENTS.md
 - 공식 도메인 비중 대비 문제은행 커버리지 리포트
 - GCP Generative AI Leader 로컬 자료 변환기
 - GCP Generative AI Leader 공식 문서 URL 기반 exam-ready 승격 명령
+- AWS Solutions Architect Associate SAA-C03 MIT Markdown 원천 inspector와 import-ready 변환기
 - SQLD/ADsP private 텍스트/PDF/HTML 원천 inspector와 import-ready 변환기
 - 정보처리기사 private ZIP/PDF 후보 inspector와 import-ready 변환기
 - 합성 문항을 제외하는 `source-backed` 출제 모드
