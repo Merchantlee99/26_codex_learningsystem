@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -367,6 +368,8 @@ def validate_gold_declared_question(
     gold_checked_at: str,
 ) -> None:
     question_id = row.get("id", "<unknown>")
+    if has_visible_answer_leak(row):
+        raise ValueError(f"{question_id} gold 문항은 지문/선택지에 정답 또는 해설이 노출되면 안 됩니다.")
     if not correct_rationale.strip():
         raise ValueError(f"{question_id} gold 문항은 correct_rationale이 필요합니다.")
     choices = row.get("choices")
@@ -384,6 +387,13 @@ def validate_gold_declared_question(
         raise ValueError(f"{question_id} gold 문항은 official_scope_refs가 필요합니다.")
     if not gold_checked_at.strip():
         raise ValueError(f"{question_id} gold 문항은 gold_checked_at이 필요합니다.")
+
+
+def has_visible_answer_leak(row: dict[str, Any]) -> bool:
+    choices = row.get("choices", [])
+    choice_text = " ".join(str(choice) for choice in choices) if isinstance(choices, list) else ""
+    haystack = f"{row.get('question_text', '')} {choice_text}"
+    return bool(re.search(r"(정답|해설)\s*[:：]\s*[1-9A-D]|답\s*[:：]\s*[1-9A-D]", haystack, re.I))
 
 
 def require_dict(payload: dict[str, Any], key: str) -> dict[str, Any]:

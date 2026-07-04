@@ -135,6 +135,16 @@ python3 -m cert_study audit final --exam SQLD
 python3 -m cert_study audit state --exam SQLD --min-rounds 3
 ```
 
+다른 과목은 source-backed JSON 안에 문항, 선택지, 정답, 독립 해설이 모두 들어 있을 때만 범용 gold 보강기를 쓴다.
+
+```bash
+python3 -m cert_study bank enrich-source-gold private_banks/import_ready/aws/source_backed.json private_banks/gold_banks/aws_gold.json --checked-at 2026-07-05 --scope-version SAA-C03
+python3 -m cert_study bank import private_banks/gold_banks/aws_gold.json --private
+python3 -m cert_study audit final --exam AWS_SOLUTIONS_ARCHITECT_ASSOCIATE
+```
+
+이 명령은 정답표만 있는 문항을 해설이 있는 문항처럼 꾸미는 용도가 아니다. placeholder 해설, 중복 지문, 지문/선택지 안에 정답이 노출된 문항은 `gold`로 올리지 않는다. 그런 자료는 먼저 원천 해설을 더 확보하거나 과목별 parser/enricher를 따로 만든다.
+
 이 흐름에서 중요한 건 문항 수가 아니라 독립적으로 풀 수 있는 지문입니다. SQL 코드나 표가 HTML의 별도 필드에 들어 있는 경우, 그 컨텍스트까지 지문에 합쳐야 합니다. 정답 해설에만 조건이 있고 문제 지문에는 조건이 없으면 `exam-ready`로 보지 않습니다.
 
 최종 사용 가능 상태는 `audit state`를 기준으로 봅니다. 이 명령은 gold 문항 부족분, 이미 확보한 source-backed 문항 중 보강해야 할 수량, 새로 수집해야 할 수량을 나눠 보여줍니다.

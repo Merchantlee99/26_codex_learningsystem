@@ -6,6 +6,7 @@ import sqlite3
 from pathlib import Path
 
 from .db import connect, initialize
+from .enrichers.source_gold import enrich_source_gold_file
 from .engine import create_session, finish_session, get_next_unanswered, submit_answer, today_iso
 from .gold import (
     audit_final_bank,
@@ -130,6 +131,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     bank_enrich_sqld.add_argument("--limit", type=int, help="보강할 최대 문항 수입니다.")
     bank_enrich_sqld.set_defaults(func=cmd_bank_enrich_sqld_gold)
+
+    bank_enrich_source = bank_sub.add_parser(
+        "enrich-source-gold",
+        help="독립 해설이 있는 source-backed JSON을 gold audit 필드가 채워진 JSON으로 보강합니다.",
+    )
+    bank_enrich_source.add_argument("source", type=Path)
+    bank_enrich_source.add_argument("output", type=Path)
+    bank_enrich_source.add_argument("--checked-at", required=True, help="검수일. 예: 2026-07-05")
+    bank_enrich_source.add_argument("--scope-version", default="", help="공식 시험 범위 버전. 예: AIF-C01")
+    bank_enrich_source.set_defaults(func=cmd_bank_enrich_source_gold)
 
     bank_convert_gcp = bank_sub.add_parser(
         "convert-gcp-gail",
@@ -414,6 +425,20 @@ def cmd_bank_enrich_sqld_gold(args: argparse.Namespace) -> int:
     print(
         f"SQLD gold 보강 완료: {result['output']} "
         f"문항 {result['questions']}개, 개념 {result['concepts']}개, 검수일 {result['checked_at']}"
+    )
+    return 0
+
+
+def cmd_bank_enrich_source_gold(args: argparse.Namespace) -> int:
+    result = enrich_source_gold_file(
+        args.source,
+        args.output,
+        checked_at=args.checked_at,
+        scope_version=args.scope_version,
+    )
+    print(
+        f"source-backed gold 보강 완료: {result['output']} "
+        f"시험 {result['exam_id']}, 문항 {result['questions']}개, 개념 {result['concepts']}개, 검수일 {result['checked_at']}"
     )
     return 0
 

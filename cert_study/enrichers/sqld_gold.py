@@ -221,17 +221,21 @@ def usable_questions(questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
             continue
         if any(not isinstance(choice, str) or not choice.strip() or choice.strip() == "?" for choice in choices):
             continue
+        if has_visible_answer_leak(question):
+            continue
         usable.append(question)
     return usable
 
 
 def select_limited_questions(payload: dict[str, Any], questions: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
     exam = payload.get("exam", {})
-    if limit != int(exam.get("official_question_count", 0) or 0):
+    official_count = int(exam.get("official_question_count", 0) or 0)
+    if official_count <= 0 or limit % official_count != 0:
         return questions[:limit]
+    rounds = limit // official_count
     domains = payload.get("domains", [])
     required_counts = {
-        str(domain["id"]): int(domain.get("official_question_count", 0))
+        str(domain["id"]): int(domain.get("official_question_count", 0)) * rounds
         for domain in domains
         if int(domain.get("official_question_count", 0) or 0) > 0
     }
@@ -330,6 +334,13 @@ def distractor_rationale(idx: int, choice: str, concept: dict[str, Any]) -> str:
 
 def is_placeholder_explanation(value: str) -> bool:
     return "정답표 기준" in value or "세부 해설" in value or "오답노트에서 보강" in value
+
+
+def has_visible_answer_leak(question: dict[str, Any]) -> bool:
+    choices = question.get("choices", [])
+    choice_text = " ".join(str(choice) for choice in choices) if isinstance(choices, list) else ""
+    haystack = f"{question.get('question_text', '')} {choice_text}"
+    return bool(re.search(r"(정답|해설)\s*[:：]\s*[1-9A-D]|답\s*[:：]\s*[1-9A-D]", haystack, re.I))
 
 
 def normalize_haystack(value: str) -> str:

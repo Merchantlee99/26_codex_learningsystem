@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Iterable
 
+from .gold import gold_row_issues
 from .quality import (
     SOURCE_BACKED_BLOCKED_QUALITY_STATUSES,
     is_exam_ready_mode,
@@ -158,7 +159,12 @@ def question_candidates(conn: sqlite3.Connection, *, exam_id: str, domain_id: st
             JOIN questions cq ON cq.id = ca.question_id
             WHERE cq.concept_id = q.concept_id
               AND ca.is_correct = 0
-          ) AS concept_wrong_count
+          ) AS concept_wrong_count,
+          (
+            SELECT c.name
+            FROM concepts c
+            WHERE c.id = q.concept_id
+          ) AS concept_name
         FROM questions q
         LEFT JOIN review_queue rq ON rq.question_id = q.id
         WHERE q.exam_id = ? AND q.domain_id = ?
@@ -168,7 +174,7 @@ def question_candidates(conn: sqlite3.Connection, *, exam_id: str, domain_id: st
     ).fetchall()
     rows = [row for row in rows if row["quality_status"] not in SOURCE_BACKED_BLOCKED_QUALITY_STATUSES]
     if is_exam_ready_mode(mode):
-        return [row for row in rows if is_exam_ready_row(row)]
+        return [row for row in rows if is_exam_ready_row(row) and not gold_row_issues(row, require_gold_status=True)]
     if is_source_backed_mode(mode):
         return [row for row in rows if is_source_backed_row(row)]
     return rows

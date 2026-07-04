@@ -9,6 +9,7 @@ from pathlib import Path
 
 from cert_study.db import connect, initialize
 from cert_study.enrichers.sqld_gold import enrich_sqld_gold_payload
+from cert_study.enrichers.source_gold import enrich_source_gold_payload
 from cert_study.engine import create_session, finish_session, get_next_unanswered, submit_answer
 from cert_study.importer import import_bank_file
 from cert_study.importers.chathuranga_saa import convert_chathuranga_saa_markdown, inspect_chathuranga_saa_markdown
@@ -268,7 +269,7 @@ class StudySystemTests(unittest.TestCase):
                 "question_text": "동일 지문을 가진 중복 문항입니다.",
                 "choices_json": json.dumps(["A", "B", "C", "D"]),
                 "answer": 1,
-                "explanation": "중복 회피 테스트입니다.",
+                "explanation": "중복 지문이 있을 때 같은 지문을 반복 출제하지 않는지 확인하는 테스트 문항입니다.",
                 "difficulty": "medium",
                 "source_type": "licensed_private",
                 "source_ref": "duplicate-fixture",
@@ -283,7 +284,7 @@ class StudySystemTests(unittest.TestCase):
                 "question_text": "동일 지문을 가진 중복 문항입니다.",
                 "choices_json": json.dumps(["A", "B", "C", "D"]),
                 "answer": 1,
-                "explanation": "중복 회피 테스트입니다.",
+                "explanation": "중복 지문이 있을 때 같은 지문을 반복 출제하지 않는지 확인하는 테스트 문항입니다.",
                 "difficulty": "medium",
                 "source_type": "licensed_private",
                 "source_ref": "duplicate-fixture",
@@ -298,7 +299,7 @@ class StudySystemTests(unittest.TestCase):
                 "question_text": "중복되지 않은 대체 문항입니다.",
                 "choices_json": json.dumps(["A", "B", "C", "D"]),
                 "answer": 1,
-                "explanation": "중복 회피 테스트입니다.",
+                "explanation": "중복되지 않은 지문을 대체 후보로 선택할 수 있는지 확인하는 테스트 문항입니다.",
                 "difficulty": "medium",
                 "source_type": "licensed_private",
                 "source_ref": "duplicate-fixture",
@@ -686,6 +687,34 @@ export const PRACTICE_QUESTIONS: Question[] = [
         self.assertIn("placeholder_explanation", {issue["code"] for issue in report["issues"]})
         self.assertIn("generic_concept", {issue["code"] for issue in report["issues"]})
         self.assertIn("최종 사용 가능", rendered)
+
+    def test_import_rejects_gold_question_with_visible_answer_leak(self) -> None:
+        payload = exam_ready_payload([("Q-LEAK", "open_license", "active", "current", 2)])
+        payload["questions"][0]["choices"][3] = "오답 선택지입니다. 정답: 2"
+        path = Path(self.tmp.name) / "leaky_gold_bank.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "정답 또는 해설이 노출"):
+            import_bank_file(self.conn, path)
+
+    def test_exam_ready_mode_excludes_stale_gold_rows_that_fail_audit_gate(self) -> None:
+        payload = exam_ready_payload(
+            [
+                ("Q-GOOD-1", "open_license", "active", "current", 1),
+                ("Q-STALE-LEAK", "open_license", "active", "current", 2),
+            ]
+        )
+        path = Path(self.tmp.name) / "stale_leaky_bank.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        import_bank_file(self.conn, path)
+        self.conn.execute(
+            "UPDATE questions SET choices_json = ? WHERE id = 'Q-STALE-LEAK'",
+            (json.dumps(["A", "B", "C", "정답: 2"], ensure_ascii=False),),
+        )
+        self.conn.commit()
+
+        with self.assertRaisesRegex(ValueError, "exam-ready 문항이 부족"):
+            create_session(self.conn, exam_id="EXAM_READY_TEST", count=2, mode="exam-ready", seed=1)
 
     def test_final_audit_passes_gold_bank_with_rationales_and_scope_refs(self) -> None:
         payload = exam_ready_payload(
@@ -1268,6 +1297,184 @@ const examData = [
         enriched = enrich_sqld_gold_payload(payload, checked_at="2026-07-04", limit=2)
 
         self.assertEqual([question["domain_id"] for question in enriched["questions"]], ["SQLD-D1", "SQLD-D2"])
+
+    def test_sqld_gold_enricher_preserves_domain_counts_for_multiple_rounds(self) -> None:
+        def row(question_id: str, domain_id: str) -> dict[str, object]:
+            return {
+                "id": question_id,
+                "domain_id": domain_id,
+                "concept_id": f"SQLD-SRC-C-{domain_id[-2:]}",
+                "question_type": "single_choice",
+                "question_text": f"{question_id} 엔터티 SELECT COUNT(*) 설명으로 옳은 것은?",
+                "choices": ["0", "1", "2", "3"],
+                "answer": 2,
+                "answer_json": {"choices": [2]},
+                "explanation": "조건을 만족하는 행이 하나라서 COUNT 결과는 1이다.",
+                "difficulty": "medium",
+                "source_type": "licensed_private",
+                "source_ref": "unit-test",
+                "source_license": "private-study-use",
+                "source_tier": "licensed_private",
+                "storage_policy": "private_only",
+                "validity_status": "current",
+                "quality_status": "active",
+                "scope_version": "2026",
+                "official_checked_at": "2026-07-04",
+                "quality_notes": "unit test",
+                "provenance": {"source_ref": "unit-test"},
+            }
+
+        payload = {
+            "exam": {
+                "id": "SQLD",
+                "name": "SQLD",
+                "official_question_count": 4,
+                "official_duration_minutes": 90,
+                "pass_score": 60,
+                "domain_min_score": 40,
+            },
+            "domains": [
+                {"id": "SQLD-D1", "name": "데이터 모델링의 이해", "official_weight": 25, "official_question_count": 1},
+                {"id": "SQLD-D2", "name": "SQL 기본 및 활용", "official_weight": 75, "official_question_count": 3},
+            ],
+            "concepts": [],
+            "questions": [
+                *[row(f"SQLD-SRC-D1-Q{idx:03d}", "SQLD-D1") for idx in range(1, 5)],
+                *[row(f"SQLD-SRC-D2-Q{idx:03d}", "SQLD-D2") for idx in range(1, 10)],
+            ],
+        }
+
+        enriched = enrich_sqld_gold_payload(payload, checked_at="2026-07-04", limit=8)
+        domain_counts = {
+            domain_id: sum(1 for question in enriched["questions"] if question["domain_id"] == domain_id)
+            for domain_id in ["SQLD-D1", "SQLD-D2"]
+        }
+
+        self.assertEqual(domain_counts, {"SQLD-D1": 2, "SQLD-D2": 6})
+
+    def test_source_gold_enricher_fills_gold_fields_from_explained_source_questions(self) -> None:
+        payload = {
+            "exam": {
+                "id": "AWS_SOLUTIONS_ARCHITECT_ASSOCIATE",
+                "name": "AWS SAA",
+                "official_question_count": 1,
+                "official_duration_minutes": 130,
+                "pass_score": 72,
+                "domain_min_score": 0,
+            },
+            "domains": [{"id": "AWS-SAA-D2", "name": "Design Resilient Architectures", "official_weight": 100, "official_question_count": 1}],
+            "concepts": [
+                {
+                    "id": "AWS-SAA-CHATH-C-D2",
+                    "domain_id": "AWS-SAA-D2",
+                    "name": "Design Resilient Architectures community practice",
+                    "review_note": "임시 개념",
+                }
+            ],
+            "questions": [
+                {
+                    "id": "AWS-SAA-SRC-Q1",
+                    "domain_id": "AWS-SAA-D2",
+                    "concept_id": "AWS-SAA-CHATH-C-D2",
+                    "question_type": "single_choice",
+                    "question_text": "A workload must survive an Availability Zone failure. Which design should be used?",
+                    "choices": ["Single EC2 instance", "Multiple Availability Zones", "Single edge location", "One subnet only"],
+                    "answer": 2,
+                    "answer_json": {"choices": [2]},
+                    "explanation": "Multiple Availability Zones protect the workload from a single data center failure and are the standard high availability pattern within a Region.",
+                    "difficulty": "medium",
+                    "source_type": "public_license",
+                    "source_ref": "unit-test",
+                    "source_license": "MIT",
+                    "source_tier": "open_license",
+                    "storage_policy": "raw_allowed",
+                    "validity_status": "current",
+                    "quality_status": "active",
+                },
+                {
+                    "id": "AWS-SAA-SRC-Q1-DUP",
+                    "domain_id": "AWS-SAA-D2",
+                    "concept_id": "AWS-SAA-CHATH-C-D2",
+                    "question_type": "single_choice",
+                    "question_text": "A workload must survive an Availability Zone failure. Which design should be used?",
+                    "choices": ["Single EC2 instance", "Multiple Availability Zones", "Single edge location", "One subnet only"],
+                    "answer": 2,
+                    "answer_json": {"choices": [2]},
+                    "explanation": "This duplicate has the same normalized stem and should be skipped by the gold enricher.",
+                    "difficulty": "medium",
+                    "source_type": "public_license",
+                    "source_ref": "unit-test",
+                    "source_license": "MIT",
+                    "source_tier": "open_license",
+                    "storage_policy": "raw_allowed",
+                    "validity_status": "current",
+                    "quality_status": "active",
+                },
+            ],
+        }
+
+        enriched = enrich_source_gold_payload(payload, checked_at="2026-07-05", scope_version="SAA-C03")
+        path = Path(self.tmp.name) / "aws_saa_gold.json"
+        path.write_text(json.dumps(enriched, ensure_ascii=False), encoding="utf-8")
+        import_bank_file(self.conn, path)
+        report = audit_final_bank(self.conn, "AWS_SOLUTIONS_ARCHITECT_ASSOCIATE")
+
+        question = enriched["questions"][0]
+        self.assertEqual(len(enriched["questions"]), 1)
+        self.assertEqual(question["gold_status"], "gold")
+        self.assertNotIn("community practice", question["review_concepts"][0].lower())
+        self.assertEqual(set(question["distractor_rationales"]), {"1", "3", "4"})
+        self.assertTrue(report["ready"])
+
+    def test_source_gold_enricher_replaces_aws_task_number_with_review_concept(self) -> None:
+        payload = {
+            "exam": {
+                "id": "AWS_AI_PRACTITIONER",
+                "name": "AWS AI Practitioner",
+                "official_question_count": 1,
+                "official_duration_minutes": 90,
+                "pass_score": 70,
+                "domain_min_score": 0,
+            },
+            "domains": [{"id": "AWS-AI-D1", "name": "Fundamentals of AI and ML", "official_weight": 100, "official_question_count": 1}],
+            "concepts": [
+                {
+                    "id": "AWS_AI_PRACTITIONER-TASK-1-3",
+                    "domain_id": "AWS-AI-D1",
+                    "name": "Task 1.3",
+                    "review_note": "공식 task statement 1.3에 매핑된 문제입니다.",
+                }
+            ],
+            "questions": [
+                {
+                    "id": "AWS-AI-Q1",
+                    "domain_id": "AWS-AI-D1",
+                    "concept_id": "AWS_AI_PRACTITIONER-TASK-1-3",
+                    "question_type": "single_choice",
+                    "question_text": "Which activity belongs to the AI/ML development lifecycle?",
+                    "choices": ["Model monitoring", "Changing DNS TTL", "Creating an IAM user only", "Buying reserved instances"],
+                    "answer": 1,
+                    "answer_json": {"choices": [1]},
+                    "explanation": "Model monitoring is part of running and improving an AI/ML system after deployment, so it belongs to the development lifecycle.",
+                    "difficulty": "medium",
+                    "source_type": "public_license",
+                    "source_ref": "unit-test",
+                    "source_license": "MIT",
+                    "source_tier": "open_license",
+                    "storage_policy": "raw_allowed",
+                    "validity_status": "current",
+                    "quality_status": "active",
+                }
+            ],
+        }
+
+        enriched = enrich_source_gold_payload(payload, checked_at="2026-07-05", scope_version="AIF-C01")
+        question = enriched["questions"][0]
+        concept = next(item for item in enriched["concepts"] if item["id"] == "AWS_AI_PRACTITIONER-TASK-1-3")
+
+        self.assertEqual(question["review_concepts"], ["AIF-C01 1.3 AI/ML 개발 생명주기"])
+        self.assertEqual(concept["name"], "AIF-C01 1.3 AI/ML 개발 생명주기")
+        self.assertNotEqual(concept["name"], "Task 1.3")
 
     def test_chathuranga_saa_markdown_converter_imports_single_choice_questions(self) -> None:
         source_dir = Path(self.tmp.name) / "chathuranga"

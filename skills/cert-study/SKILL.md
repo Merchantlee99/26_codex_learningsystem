@@ -34,6 +34,7 @@ Codex는 아래 역할을 맡는다.
 - `final-mock`은 정규 문항 수와 gold 문항만 사용하는 최종 모의고사 모드다.
 - 검수 전 출처 기반 문항은 `source-backed`로만 풀고, 실전 모드처럼 말하지 않는다.
 - 실제 기출, 족보, 유료 문제집 원문은 공개 repo 문제은행으로 가져오지 않는다.
+- `bank enrich-source-gold`는 이미 독립 해설이 있는 source-backed JSON을 보강하는 용도다. 정답표뿐인 문항을 exam-ready로 꾸미지 않는다.
 - 지원 여부가 애매하면 먼저 `list_exams`를 호출한다.
 
 ## 지원 과목
@@ -70,6 +71,7 @@ python3 -m cert_study coverage --exam SQLD
 python3 -m cert_study audit final --exam SQLD
 python3 -m cert_study audit readiness --min-rounds 3
 python3 -m cert_study audit state --min-rounds 3
+python3 -m cert_study bank enrich-source-gold private_banks/import_ready/<exam>/source_backed.json private_banks/gold_banks/<exam>_gold.json --checked-at 2026-07-05 --scope-version <scope>
 python3 -m cert_study session answer <session_id> <answer>
 python3 -m cert_study session current <session_id>
 python3 -m cert_study session finish <session_id>

@@ -158,7 +158,17 @@ python3 -m cert_study bank import private_banks/gold_banks/sqld_gold.json --priv
 python3 -m cert_study audit final --exam SQLD
 ```
 
-`enrich-sqld-gold`는 SQLD 전용 보강기입니다. HTML 안에 문항/선택지/정답/해설/SQL 코드가 분리돼 있을 때 이를 CBT 지문으로 합치고, 세부 개념과 정답/오답 근거를 채워 `exam-ready` 후보를 만듭니다. 다른 과목은 같은 기준을 만족하는 별도 보강기나 수동 gold JSON을 만들어야 합니다.
+`enrich-sqld-gold`는 SQLD 전용 보강기입니다. HTML 안에 문항/선택지/정답/해설/SQL 코드가 분리돼 있을 때 이를 CBT 지문으로 합치고, 세부 개념과 정답/오답 근거를 채워 `exam-ready` 후보를 만듭니다.
+
+다른 과목에서 이미 문항, 선택지, 정답, 독립 해설이 들어 있는 source-backed JSON을 확보했다면 범용 보강기를 씁니다.
+
+```bash
+python3 -m cert_study bank enrich-source-gold private_banks/import_ready/aws/source_backed.json private_banks/gold_banks/aws_gold.json --checked-at 2026-07-05 --scope-version AIF-C01
+python3 -m cert_study bank import private_banks/gold_banks/aws_gold.json --private
+python3 -m cert_study audit final --exam AWS_AI_PRACTITIONER
+```
+
+`enrich-source-gold`는 문제를 새로 만들어내는 명령이 아닙니다. 정답표만 있고 해설이 비어 있거나, “세부 해설은 오답노트에서 보강” 같은 placeholder 설명뿐인 문항은 최종 문항으로 올리지 않습니다. 이 경우에는 원천 해설을 더 확보하거나, 과목별 보강기를 따로 만들어야 합니다.
 
 ## Codex에서 쓰는 흐름
 
