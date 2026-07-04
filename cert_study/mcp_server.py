@@ -116,7 +116,7 @@ def handle_message(message: dict[str, Any]) -> dict[str, Any] | None:
             {
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "cert-study", "version": "0.3.5"},
+                "serverInfo": {"name": "cert-study", "version": "0.3.6"},
             },
         )
     if method == "tools/list":

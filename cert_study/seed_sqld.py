@@ -11,7 +11,7 @@ EXAM = {
     "official_duration_minutes": 90,
     "pass_score": 60.0,
     "domain_min_score": 40.0,
-    "notes": "SQLD official-like training profile: 50 questions, 90 minutes, 60+ pass line, 40% domain minimum reference.",
+    "notes": "공개된 SQLD 시험 구조를 참고한 템플릿 데모 프로필입니다. 실제 기출, 공식 샘플, 상업 문제은행을 복제하지 않았습니다.",
 }
 
 DOMAINS = [
@@ -57,7 +57,23 @@ def q(
         "explanation": explanation,
         "difficulty": difficulty,
         "source_type": "synthetic",
-        "source_ref": "개념 연습용으로 만든 합성 훈련 문항이며 상업 문제은행에서 복사하지 않았습니다.",
+        "source_ref": "템플릿 데모용으로 새로 작성한 합성 훈련 문항이며 실제 기출, 공식 샘플, 상업 문제은행을 복제하지 않았습니다.",
+        "source_license": "synthetic",
+        "source_tier": "synthetic",
+        "storage_policy": "generated_demo_only",
+        "validity_status": "current",
+        "quality_status": "active",
+        "scope_version": "DATAQ_SQLD_PUBLIC_STRUCTURE_2026",
+        "official_checked_at": "2026-07-04",
+        "quality_notes": "DATAQ 공개 SQLD 시험 구조만 참고했고 문항 원문은 새로 작성한 합성 데모입니다.",
+        "provenance_json": json.dumps(
+            {
+                "origin": "synthetic_template_demo",
+                "exam_structure_source": "https://www.dataq.or.kr/www/sub/a_04.do",
+                "copied_source_text": False,
+            },
+            ensure_ascii=False,
+        ),
     }
 
 
@@ -135,8 +151,50 @@ def seed(conn: sqlite3.Connection) -> None:
     conn.executemany(
         """
         INSERT OR REPLACE INTO questions
-        (id, exam_id, domain_id, concept_id, question_text, choices_json, answer, explanation, difficulty, source_type, source_ref)
-        VALUES (:id, :exam_id, :domain_id, :concept_id, :question_text, :choices_json, :answer, :explanation, :difficulty, :source_type, :source_ref)
+        (
+          id,
+          exam_id,
+          domain_id,
+          concept_id,
+          question_text,
+          choices_json,
+          answer,
+          explanation,
+          difficulty,
+          source_type,
+          source_ref,
+          source_license,
+          source_tier,
+          storage_policy,
+          validity_status,
+          quality_status,
+          scope_version,
+          official_checked_at,
+          quality_notes,
+          provenance_json
+        )
+        VALUES (
+          :id,
+          :exam_id,
+          :domain_id,
+          :concept_id,
+          :question_text,
+          :choices_json,
+          :answer,
+          :explanation,
+          :difficulty,
+          :source_type,
+          :source_ref,
+          :source_license,
+          :source_tier,
+          :storage_policy,
+          :validity_status,
+          :quality_status,
+          :scope_version,
+          :official_checked_at,
+          :quality_notes,
+          :provenance_json
+        )
         """,
         QUESTIONS,
     )

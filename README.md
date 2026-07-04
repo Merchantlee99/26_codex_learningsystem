@@ -1,10 +1,10 @@
 # 코덱스 학습 시스템
 
-Codex 대화창을 SQLD CBT 시험장처럼 쓰기 위한 로컬 학습 플러그인입니다.
+사용자가 자기 과목과 문제은행을 붙여 확장할 수 있는 Codex CBT 학습 견본 플러그인입니다. 공개 기본값은 SQLD 하나이고, 공개 repo에는 시스템 동작을 보여주는 합성 데모 문항만 둡니다.
 
 핵심은 “LLM이 문제를 만들어준다”가 아닙니다. 문제 출제, 답변 기록, 채점, 오답 리포트, 복습 큐를 로컬 Python 엔진과 SQLite가 관리하고, Codex는 사용자가 대화창에서 자연스럽게 시험을 풀 수 있게 연결합니다.
 
-이 레포는 공개 포트폴리오용 코드베이스입니다. 실제 개인 문제은행, 풀이 기록, Obsidian 산출물, Notion 대상 DB 정보는 공개 repo에 넣지 않습니다. 공개 기본값은 SQLD 데모 문항만 둡니다.
+이 레포는 공개 포트폴리오용 코드베이스입니다. 실제 개인 문제은행, 풀이 기록, Obsidian 산출물, Notion 대상 DB 정보는 공개 repo에 넣지 않습니다.
 
 ## 왜 만들었나
 
@@ -83,6 +83,21 @@ python3 -m cert_study session start --exam SQLD --count 10 --mode weak-cbt
 python3 -m cert_study session start --exam SQLD --count 10 --mode review-cbt
 ```
 
+## 견본 플러그인으로 쓰는 방법
+
+처음 보는 사람은 이 repo를 문제은행이 아니라 플러그인 골격으로 보면 됩니다.
+
+1. SQLD 데모 seed로 CBT 흐름이 어떻게 동작하는지 확인합니다.
+2. `examples/private_bank.example.json` 형식으로 자기 과목의 JSON/YAML 문제은행을 만듭니다.
+3. 실제 학습 자료는 `private_banks/` 아래에서 로컬 import하고 공개 repo에는 올리지 않습니다.
+
+```bash
+python3 -m cert_study bank import private_banks/my-bank.json --private
+python3 -m cert_study session start --exam MY_EXAM --count 20
+```
+
+과목이 여러 개로 늘어나면 Python seed 파일을 추가로 만드는 대신, JSON/YAML import 경로를 유지하는 편이 좋습니다. 그래야 공개 코드와 개인 학습 자료가 섞이지 않습니다.
+
 ## Codex에서 쓰는 흐름
 
 ```text
@@ -107,7 +122,7 @@ SQLD 20문제 시작해줘
 
 ## 공개 repo 경계
 
-이 repo는 문제 저장소가 아닙니다.
+이 repo는 문제 저장소가 아니라 확장 가능한 견본 플러그인입니다.
 
 | 들어가는 것 | 들어가지 않는 것 |
 | --- | --- |
@@ -118,6 +133,8 @@ SQLD 20문제 시작해줘
 | 로컬 import 구조 | 로컬 private 문제은행 |
 
 추가 문제은행은 로컬에서만 import합니다. `private_banks/`, `data/study.sqlite`, `reports/`, `obsidian_vault/`는 공개 repo에 올리지 않습니다.
+
+공개 SQLD 문항은 실제 기출, 공식 샘플, 유료 문제집, 웹 문제 원문을 복제한 것이 아니라 CBT 흐름 확인을 위해 새로 작성한 합성 문항입니다. 시험 구조는 공개된 SQLD 문항 수와 과목 비중을 참고하지만, 문항 원문은 공식/상업 문제를 가져오지 않습니다.
 
 ## 문항 수를 늘리는 방식
 

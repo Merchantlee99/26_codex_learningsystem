@@ -53,6 +53,29 @@ class StudySystemTests(unittest.TestCase):
         self.assertEqual(set(counts), {"SQLD"})
         self.assertEqual(counts["SQLD"], 50)
 
+    def test_public_sqld_seed_is_marked_as_synthetic_template_content(self) -> None:
+        row = self.conn.execute(
+            """
+            SELECT
+              COUNT(*) AS total,
+              COUNT(CASE WHEN source_type = 'synthetic' THEN 1 END) AS synthetic_count,
+              COUNT(CASE WHEN source_tier = 'synthetic' THEN 1 END) AS synthetic_tier_count,
+              COUNT(CASE WHEN source_license = 'synthetic' THEN 1 END) AS synthetic_license_count,
+              COUNT(CASE WHEN source_ref LIKE '%실제 기출%' AND source_ref LIKE '%복제하지 않았습니다%' THEN 1 END) AS provenance_count
+            FROM questions
+            WHERE exam_id = 'SQLD'
+            """
+        ).fetchone()
+        notes = self.conn.execute("SELECT notes FROM exams WHERE id = 'SQLD'").fetchone()["notes"]
+
+        self.assertEqual(row["total"], 50)
+        self.assertEqual(row["synthetic_count"], 50)
+        self.assertEqual(row["synthetic_tier_count"], 50)
+        self.assertEqual(row["synthetic_license_count"], 50)
+        self.assertEqual(row["provenance_count"], 50)
+        self.assertIn("템플릿 데모", notes)
+        self.assertIn("복제하지 않았습니다", notes)
+
     def test_source_backed_mode_filters_out_synthetic_questions(self) -> None:
         concept_by_domain = {
             row["domain_id"]: row["id"]
