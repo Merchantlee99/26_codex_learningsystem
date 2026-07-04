@@ -6,7 +6,14 @@ from pathlib import Path
 
 from .db import connect, initialize
 from .engine import create_session, finish_session, get_next_unanswered, submit_answer, today_iso
-from .gold import audit_final_bank, export_gold_template, promote_gold_candidates, render_final_audit_report
+from .gold import (
+    audit_final_bank,
+    audit_readiness,
+    export_gold_template,
+    promote_gold_candidates,
+    render_final_audit_report,
+    render_readiness_report,
+)
 from .importer import import_bank_file
 from .enrichers.sqld_gold import enrich_sqld_gold_file
 from .importers.chathuranga_saa import (
@@ -66,6 +73,10 @@ def build_parser() -> argparse.ArgumentParser:
     audit_final = audit_sub.add_parser("final", help="gold 문제은행이 바로 학습 가능한지 검수합니다.")
     audit_final.add_argument("--exam", default="SQLD")
     audit_final.set_defaults(func=cmd_audit_final)
+
+    audit_readiness_parser = audit_sub.add_parser("readiness", help="전체 과목이 정규 시험 대비 기준을 충족하는지 점검합니다.")
+    audit_readiness_parser.add_argument("--min-rounds", type=int, default=3, help="최소 gold 회분 기준입니다. 기본값은 3회분입니다.")
+    audit_readiness_parser.set_defaults(func=cmd_audit_readiness)
 
     bank = sub.add_parser("bank", help="개인 문제은행 import를 관리합니다.")
     bank_sub = bank.add_subparsers(required=True)
@@ -210,15 +221,15 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument(
         "--mode",
         default="custom-cbt",
-        choices=["custom-cbt", "review-cbt", "weak-cbt", "exam-ready", "source-backed"],
-        help="custom-cbt는 미노출 우선, review-cbt는 복습 예정/오답 우선, weak-cbt는 취약 개념 우선, exam-ready는 gold 문항만, source-backed는 검수 전이라도 출처 기반 문항만 출제합니다.",
+        choices=["custom-cbt", "review-cbt", "weak-cbt", "exam-ready", "final-mock", "source-backed"],
+        help="custom-cbt는 미노출 우선, review-cbt는 복습 예정/오답 우선, weak-cbt는 취약 개념 우선, exam-ready/final-mock은 gold 문항만, source-backed는 검수 전이라도 출처 기반 문항만 출제합니다.",
     )
     start.add_argument("--seed", type=int, help="문항 선택을 재현하기 위한 seed입니다.")
     start.set_defaults(func=cmd_session_start)
 
     answer = session_sub.add_parser("answer", help="다음 미응답 문제에 답을 제출합니다.")
     answer.add_argument("session_id")
-    answer.add_argument("answer", type=int)
+    answer.add_argument("answer", help="단일정답은 3, 복수정답은 1,3 처럼 입력합니다.")
     answer.set_defaults(func=cmd_session_answer)
 
     current = session_sub.add_parser("current", help="다음 미응답 문제를 보여줍니다.")
@@ -269,7 +280,7 @@ def cmd_stats(args: argparse.Namespace) -> int:
                    AND q.validity_status = 'current'
                    AND q.gold_status = 'gold'
                    AND q.source_tier IN ('official_sample', 'open_license', 'user_owned', 'licensed_private')
-                   AND q.question_type = 'single_choice'
+                   AND q.question_type IN ('single_choice', 'multiple_response')
                   THEN q.id
                 END
               ) AS exam_ready_count,
@@ -321,6 +332,13 @@ def cmd_audit_final(args: argparse.Namespace) -> int:
         report = audit_final_bank(conn, args.exam)
     print(render_final_audit_report(report))
     return 0 if report["ready"] else 2
+
+
+def cmd_audit_readiness(args: argparse.Namespace) -> int:
+    with ready_conn() as conn:
+        report = audit_readiness(conn, min_rounds=args.min_rounds)
+    print(render_readiness_report(report))
+    return 0 if all(row["status"] == "GREEN" for row in report["exams"]) else 2
 
 
 def cmd_bank_import(args: argparse.Namespace) -> int:
@@ -449,7 +467,7 @@ def cmd_session_start(args: argparse.Namespace) -> int:
     with ready_conn() as conn:
         if args.regular:
             count = None
-            mode = "exam-ready" if args.mode == "exam-ready" else "regular-mock"
+            mode = "exam-ready" if args.mode == "exam-ready" else "final-mock"
         else:
             count = args.count or 20
             mode = args.mode

@@ -30,6 +30,7 @@ class QuestionView:
     question_id: str
     domain: str
     concept: str
+    question_type: str
     question_text: str
     choices: list[str]
 
@@ -309,6 +310,7 @@ def get_question_view(conn: sqlite3.Connection, session_id: str, position: int) 
           sq.session_id,
           sq.position,
           q.id AS question_id,
+          q.question_type,
           q.question_text,
           q.choices_json,
           d.name AS domain,
@@ -331,6 +333,7 @@ def get_question_view(conn: sqlite3.Connection, session_id: str, position: int) 
         question_id=row["question_id"],
         domain=row["domain"],
         concept=row["concept"],
+        question_type=row["question_type"],
         question_text=row["question_text"],
         choices=json.loads(row["choices_json"]),
     )
@@ -353,18 +356,19 @@ def get_next_unanswered(conn: sqlite3.Connection, session_id: str) -> QuestionVi
     return get_question_view(conn, session_id, row["position"])
 
 
-def submit_answer(conn: sqlite3.Connection, session_id: str, answer: int) -> tuple[bool, QuestionView | None]:
-    if answer < 1 or answer > 4:
-        raise ValueError("answer must be between 1 and 4")
+def submit_answer(conn: sqlite3.Connection, session_id: str, answer: int | list[int] | str) -> tuple[bool, QuestionView | None]:
     current = get_next_unanswered(conn, session_id)
     if current is None:
         raise ValueError("session has no unanswered questions")
     question = conn.execute("SELECT * FROM questions WHERE id = ?", (current.question_id,)).fetchone()
     if question is None:
         raise RuntimeError(f"missing question: {current.question_id}")
-    is_correct = int(answer == question["answer"])
-    user_answer_json = json.dumps({"choices": [answer]}, ensure_ascii=False)
-    correct_answer_json = json.dumps({"choices": [question["answer"]]}, ensure_ascii=False)
+    choices = json.loads(question["choices_json"])
+    user_choices = normalize_user_answer(answer, question_type=question["question_type"], choice_count=len(choices))
+    correct_choices = correct_answer_choices(question)
+    is_correct = int(user_choices == correct_choices)
+    user_answer_json = json.dumps({"choices": user_choices}, ensure_ascii=False)
+    correct_answer_json = json.dumps({"choices": correct_choices}, ensure_ascii=False)
     attempt_id = f"att-{uuid.uuid4().hex[:12]}"
     conn.execute(
         """
@@ -387,8 +391,8 @@ def submit_answer(conn: sqlite3.Connection, session_id: str, answer: int) -> tup
             attempt_id,
             session_id,
             current.question_id,
-            answer,
-            question["answer"],
+            user_choices[0] if user_choices else 0,
+            correct_choices[0] if correct_choices else 0,
             user_answer_json,
             correct_answer_json,
             is_correct,
@@ -398,6 +402,46 @@ def submit_answer(conn: sqlite3.Connection, session_id: str, answer: int) -> tup
     )
     conn.commit()
     return bool(is_correct), get_next_unanswered(conn, session_id)
+
+
+def normalize_user_answer(answer: int | list[int] | str, *, question_type: str, choice_count: int) -> list[int]:
+    if isinstance(answer, str):
+        parts = [part.strip() for part in re.split(r"[,\\s]+", answer.strip()) if part.strip()]
+    elif isinstance(answer, list):
+        parts = answer
+    else:
+        parts = [answer]
+    if not parts:
+        raise ValueError("answer is required")
+    choices: list[int] = []
+    for part in parts:
+        try:
+            choice = int(part)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("answer must be a number or comma-separated numbers") from exc
+        if choice < 1 or choice > choice_count:
+            raise ValueError(f"answer must be between 1 and {choice_count}")
+        if choice not in choices:
+            choices.append(choice)
+    choices.sort()
+    if question_type == "single_choice" and len(choices) != 1:
+        raise ValueError("single_choice answer must contain exactly one choice")
+    if question_type == "multiple_response" and len(choices) < 1:
+        raise ValueError("multiple_response answer must contain at least one choice")
+    if question_type not in {"single_choice", "multiple_response"}:
+        raise ValueError(f"unsupported question_type: {question_type}")
+    return choices
+
+
+def correct_answer_choices(question: sqlite3.Row) -> list[int]:
+    try:
+        payload = json.loads(question["answer_json"])
+    except (TypeError, ValueError):
+        payload = {}
+    choices = payload.get("choices") if isinstance(payload, dict) else None
+    if not isinstance(choices, list) or not choices:
+        choices = [question["answer"]]
+    return sorted({int(choice) for choice in choices})
 
 
 def infer_mistake_reason(conn: sqlite3.Connection, question_id: str) -> str:
@@ -492,8 +536,11 @@ def wrong_attempt_rows(conn: sqlite3.Connection, session_id: str) -> list[sqlite
           q.question_text,
           q.choices_json,
           q.explanation,
+          q.question_type,
           a.user_answer,
           a.correct_answer,
+          a.user_answer_json,
+          a.correct_answer_json,
           a.mistake_reason,
           d.name AS domain,
           c.name AS concept,

@@ -6,7 +6,7 @@ from typing import Any
 
 from .db import connect, initialize
 from .engine import create_session, finish_session, get_next_unanswered, submit_answer
-from .gold import audit_final_bank, render_final_audit_report
+from .gold import audit_final_bank, audit_readiness, render_final_audit_report, render_readiness_report
 from .notion_sync import prepare_notion_sync_plan, render_plan
 from .quality import coverage_report, render_coverage_report
 from .reporting import render_question, render_session_report, write_study_outputs
@@ -38,9 +38,9 @@ TOOLS: list[dict[str, Any]] = [
                 "regular": {"type": "boolean", "default": False},
                 "mode": {
                     "type": "string",
-                    "enum": ["custom-cbt", "review-cbt", "weak-cbt", "exam-ready", "source-backed"],
+                    "enum": ["custom-cbt", "review-cbt", "weak-cbt", "exam-ready", "final-mock", "source-backed"],
                     "default": "custom-cbt",
-                    "description": "custom-cbt는 미노출 우선, review-cbt는 복습 예정/오답 우선, weak-cbt는 취약 개념 우선, exam-ready는 gold 문항만, source-backed는 검수 전이라도 출처 기반 문항만 출제합니다.",
+                    "description": "custom-cbt는 미노출 우선, review-cbt는 복습 예정/오답 우선, weak-cbt는 취약 개념 우선, exam-ready/final-mock은 gold 문항만, source-backed는 검수 전이라도 출처 기반 문항만 출제합니다.",
                 },
                 "seed": {"type": "integer"},
             },
@@ -66,13 +66,28 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "readiness_audit_report",
+        "description": "전체 과목이 정규 시험 대비 기준을 충족하는지 점검한다.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"min_rounds": {"type": "integer", "default": 3, "minimum": 1}},
+            "additionalProperties": False,
+        },
+    },
+    {
         "name": "submit_answer",
-        "description": "현재 세션에 1~4번 답변을 제출하고 다음 문제가 있으면 반환한다.",
+        "description": "현재 세션에 답변을 제출하고 다음 문제가 있으면 반환한다. 복수정답은 '1,3' 또는 [1,3]으로 제출한다.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "session_id": {"type": "string"},
-                "answer": {"type": "integer", "minimum": 1, "maximum": 4},
+                "answer": {
+                    "oneOf": [
+                        {"type": "integer", "minimum": 1},
+                        {"type": "string"},
+                        {"type": "array", "items": {"type": "integer", "minimum": 1}, "minItems": 1},
+                    ]
+                },
             },
             "required": ["session_id", "answer"],
             "additionalProperties": False,
@@ -126,7 +141,7 @@ def handle_message(message: dict[str, Any]) -> dict[str, Any] | None:
             {
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "cert-study", "version": "0.4.0"},
+                "serverInfo": {"name": "cert-study", "version": "0.5.0"},
             },
         )
     if method == "tools/list":
@@ -174,7 +189,7 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
                            AND q.validity_status = 'current'
                            AND q.gold_status = 'gold'
                            AND q.source_tier IN ('official_sample', 'open_license', 'user_owned', 'licensed_private')
-                           AND q.question_type = 'single_choice'
+                           AND q.question_type IN ('single_choice', 'multiple_response')
                           THEN 1
                         END
                       ) AS exam_ready_questions,
@@ -202,7 +217,7 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         with ready_conn() as conn:
             regular = bool(arguments.get("regular", False))
             mode = str(arguments.get("mode", "custom-cbt"))
-            session_mode = "exam-ready" if regular and mode == "exam-ready" else ("regular-mock" if regular else mode)
+            session_mode = "exam-ready" if regular and mode == "exam-ready" else ("final-mock" if regular else mode)
             view = create_session(
                 conn,
                 exam_id=arguments.get("exam", "SQLD"),
@@ -222,9 +237,14 @@ def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
             report = audit_final_bank(conn, arguments.get("exam", "SQLD"))
         return text_result(render_final_audit_report(report), report)
 
+    if name == "readiness_audit_report":
+        with ready_conn() as conn:
+            report = audit_readiness(conn, min_rounds=int(arguments.get("min_rounds", 3)))
+        return text_result(render_readiness_report(report), report)
+
     if name == "submit_answer":
         with ready_conn() as conn:
-            _correct, next_view = submit_answer(conn, arguments["session_id"], int(arguments["answer"]))
+            _correct, next_view = submit_answer(conn, arguments["session_id"], arguments["answer"])
         if next_view is None:
             return text_result(
                 "답변을 기록했습니다.\n\n모든 문제에 답했습니다. finish_session을 호출해 결과를 생성하세요.",

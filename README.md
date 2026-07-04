@@ -89,7 +89,9 @@ python3 -m cert_study session start --exam SQLD --count 10 --mode review-cbt
 
 ```bash
 python3 -m cert_study audit final --exam SQLD
+python3 -m cert_study audit readiness --min-rounds 3
 python3 -m cert_study session start --exam SQLD --count 20 --mode exam-ready
+python3 -m cert_study session start --exam SQLD --regular --mode final-mock
 ```
 
 ## 견본 플러그인으로 쓰는 방법
@@ -133,6 +135,8 @@ python3 -m cert_study audit final --exam SQLD
 
 `audit final`에서 부족한 해설, 임시 개념 매핑, 공식 출제범위 참조 누락, 영역별 문항 수 부족이 나오면 아직 최종 학습용으로 보지 않습니다.
 
+`audit readiness`는 한 과목만 보는 것이 아니라 전체 과목을 대상으로 최소 몇 회분의 gold 문항이 있는지 보여줍니다. 정규시험 대비 최종 상태를 보려면 `audit final` 통과만이 아니라 `audit readiness --min-rounds 3` 기준도 같이 봅니다.
+
 SQLD처럼 로컬에 실제 출처 기반 HTML/PDF를 모아둔 경우에는 아래 흐름으로 import-ready 파일을 만들고, 검수 가능한 gold 파일로 분리합니다. 이 파일들은 모두 `private_banks/` 아래에 두며 공개 repo에는 올라가지 않습니다.
 
 ```bash
@@ -152,6 +156,8 @@ SQLD 20문제 시작해줘
 ```
 
 그러면 시스템은 첫 문제만 보여줍니다. 사용자가 답을 입력하면 다음 문제로 넘어갑니다. 세션 종료 전에는 정답표나 해설을 먼저 공개하지 않습니다.
+
+단일정답은 `3`처럼 입력하고, 복수정답은 `1,3`처럼 쉼표로 입력합니다. 복수정답 문항은 정답 선택지를 모두 맞혀야 정답으로 처리합니다.
 
 최종 리포트에는 아래가 들어갑니다.
 

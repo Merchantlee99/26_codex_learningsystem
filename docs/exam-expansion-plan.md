@@ -105,12 +105,14 @@ questions:
 - 공식 문항 수와 합격선이 맞는지
 - domain weight 합이 100인지
 - 모든 문제가 존재하는 domain과 concept을 참조하는지
-- 정답이 1~4 사이인지
-- 현재 엔진이 지원하는 `single_choice` 문항인지
+- 정답 번호가 선택지 범위 안에 있는지
+- 현재 엔진이 지원하는 `single_choice` 또는 `multiple_response` 문항인지
+- `multiple_response`는 `answer_json.choices`에 정답 번호가 2개 이상 들어 있는지
 - 개인 source type은 반드시 `--private` 옵션으로만 import되는지
 - 공개 repo에 원문 문제가 들어가지 않는지
 - `correct_rationale`, `distractor_rationales`, `review_concepts`, `official_scope_refs`가 채워졌는지
 - `python3 -m cert_study audit final --exam <EXAM_ID>`가 통과하는지
+- `python3 -m cert_study audit readiness --min-rounds 3`에서 최소 3회분 기준을 충족하는지
 
 ## 실제 소스 기반 보강 흐름
 
@@ -144,6 +146,7 @@ python3 -m cert_study audit final --exam SQLD
 | `weak-cbt` | 자주 틀린 개념의 문항 -> 복습 예정 문제 -> 미노출 문제 |
 | `source-backed` | 합성 seed를 제외하고 출처가 있는 로컬 문항 |
 | `exam-ready` | `quality_status=active`, `validity_status=current`, `gold_status=gold`인 문항 |
+| `final-mock` | 정규 문항 수와 gold 문항만 사용하는 최종 모의고사 |
 
 ## 공개 repo에서 보여줄 것
 

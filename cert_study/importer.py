@@ -28,6 +28,7 @@ FORBIDDEN_SOURCE_TYPES = {
     "web_scraped_verbatim",
 }
 GOLD_STATUSES = {"none", "candidate", "gold", "rejected", "needs_review"}
+SUPPORTED_QUESTION_TYPES = {"single_choice", "multiple_response"}
 
 
 def import_bank_file(conn: sqlite3.Connection, path: Path, *, private: bool = False) -> dict[str, int | str]:
@@ -158,12 +159,13 @@ def validate_question_sources(questions: list[Any], *, private: bool) -> None:
 
 def normalize_question(row: dict[str, Any], exam_id: str) -> tuple[Any, ...]:
     question_type = str(row.get("question_type", "single_choice")).strip() or "single_choice"
-    if question_type != "single_choice":
-        raise ValueError(f"{row.get('id', '<unknown>')} 현재 importer는 single_choice만 CBT로 가져옵니다.")
+    if question_type not in SUPPORTED_QUESTION_TYPES:
+        raise ValueError(f"{row.get('id', '<unknown>')} 지원하지 않는 question_type입니다: {question_type}")
     choices = row.get("choices")
-    if not isinstance(choices, list) or len(choices) != 4 or not all(isinstance(item, str) for item in choices):
-        raise ValueError(f"{row.get('id', '<unknown>')} choices는 문자열 4개여야 합니다.")
-    answer = normalize_single_choice_answer(row)
+    if not isinstance(choices, list) or len(choices) < 4 or not all(isinstance(item, str) for item in choices):
+        raise ValueError(f"{row.get('id', '<unknown>')} choices는 문자열 4개 이상이어야 합니다.")
+    answer_choices = normalize_answer_choices(row, question_type=question_type, choice_count=len(choices))
+    answer = answer_choices[0]
     source_type = require_text(row, "source_type")
     source_ref = require_text(row, "source_ref")
     validity_status = optional_text(row, "validity_status", "current")
@@ -176,7 +178,7 @@ def normalize_question(row: dict[str, Any], exam_id: str) -> tuple[Any, ...]:
     if gold_status == "gold":
         validate_gold_declared_question(
             row,
-            answer=answer,
+            answer_choices=answer_choices,
             correct_rationale=correct_rationale,
             distractor_rationales=distractor_rationales,
             review_concepts=review_concepts,
@@ -191,7 +193,7 @@ def normalize_question(row: dict[str, Any], exam_id: str) -> tuple[Any, ...]:
         question_type,
         require_text(row, "question_text"),
         json.dumps(choices, ensure_ascii=False),
-        json.dumps({"choices": [answer]}, ensure_ascii=False),
+        json.dumps({"choices": answer_choices}, ensure_ascii=False),
         answer,
         require_text(row, "explanation"),
         str(row.get("difficulty", "medium")),
@@ -216,10 +218,10 @@ def normalize_question(row: dict[str, Any], exam_id: str) -> tuple[Any, ...]:
     )
 
 
-def normalize_single_choice_answer(row: dict[str, Any]) -> int:
+def normalize_answer_choices(row: dict[str, Any], *, question_type: str, choice_count: int) -> list[int]:
     answer_from_int = row.get("answer")
     answer_json = row.get("answer_json")
-    answer_from_json: int | None = None
+    answer_from_json: list[int] | None = None
     if answer_json is not None:
         if isinstance(answer_json, str):
             try:
@@ -229,22 +231,40 @@ def normalize_single_choice_answer(row: dict[str, Any]) -> int:
         if not isinstance(answer_json, dict):
             raise ValueError(f"{row.get('id', '<unknown>')} answer_json은 object여야 합니다.")
         choices = answer_json.get("choices")
-        if not isinstance(choices, list) or len(choices) != 1:
-            raise ValueError(f"{row.get('id', '<unknown>')} answer_json.choices는 정답 번호 1개여야 합니다.")
-        answer_from_json = int(choices[0])
+        if not isinstance(choices, list):
+            raise ValueError(f"{row.get('id', '<unknown>')} answer_json.choices는 정답 번호 list여야 합니다.")
+        answer_from_json = normalize_choice_numbers(row, choices, choice_count=choice_count)
 
     if answer_from_int is None:
-        answer = answer_from_json or 0
+        answers = answer_from_json or []
     elif answer_from_json is None:
-        answer = int(answer_from_int)
+        answers = normalize_choice_numbers(row, [answer_from_int], choice_count=choice_count)
     else:
-        answer = int(answer_from_int)
-        if answer != answer_from_json:
+        answers = answer_from_json
+        if question_type == "single_choice" and int(answer_from_int) != answers[0]:
             raise ValueError(f"{row.get('id', '<unknown>')} answer와 answer_json이 서로 다릅니다.")
 
-    if answer < 1 or answer > 4:
-        raise ValueError(f"{row.get('id', '<unknown>')} answer는 1~4여야 합니다.")
-    return answer
+    if question_type == "single_choice" and len(answers) != 1:
+        raise ValueError(f"{row.get('id', '<unknown>')} single_choice는 정답 번호 1개가 필요합니다.")
+    if question_type == "multiple_response" and len(answers) < 2:
+        raise ValueError(f"{row.get('id', '<unknown>')} multiple_response는 정답 번호 2개 이상이 필요합니다.")
+    return answers
+
+
+def normalize_choice_numbers(row: dict[str, Any], values: list[Any], *, choice_count: int) -> list[int]:
+    if not values:
+        raise ValueError(f"{row.get('id', '<unknown>')} answer_json.choices가 비어 있습니다.")
+    answers: list[int] = []
+    for value in values:
+        try:
+            answer = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{row.get('id', '<unknown>')} 정답 번호는 정수여야 합니다.") from exc
+        if answer < 1 or answer > choice_count:
+            raise ValueError(f"{row.get('id', '<unknown>')} 정답 번호는 1~{choice_count} 사이여야 합니다.")
+        if answer not in answers:
+            answers.append(answer)
+    return sorted(answers)
 
 
 def default_source_license(source_type: str) -> str:
@@ -339,7 +359,7 @@ def normalize_json_list(row: dict[str, Any], key: str, legacy_key: str) -> list[
 def validate_gold_declared_question(
     row: dict[str, Any],
     *,
-    answer: int,
+    answer_choices: list[int],
     correct_rationale: str,
     distractor_rationales: dict[str, Any],
     review_concepts: list[Any],
@@ -349,10 +369,12 @@ def validate_gold_declared_question(
     question_id = row.get("id", "<unknown>")
     if not correct_rationale.strip():
         raise ValueError(f"{question_id} gold 문항은 correct_rationale이 필요합니다.")
+    choices = row.get("choices")
+    choice_count = len(choices) if isinstance(choices, list) else 4
     missing = [
         str(idx)
-        for idx in range(1, 5)
-        if idx != answer and not str(distractor_rationales.get(str(idx), "")).strip()
+        for idx in range(1, choice_count + 1)
+        if idx not in answer_choices and not str(distractor_rationales.get(str(idx), "")).strip()
     ]
     if missing:
         raise ValueError(f"{question_id} gold 문항은 오답 선택지 해설이 필요합니다: {', '.join(missing)}")

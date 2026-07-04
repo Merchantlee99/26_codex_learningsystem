@@ -8,6 +8,7 @@ EXAM_READY_MODE = "exam-ready"
 EXAM_READY_SOURCE_TIERS = {"official_sample", "open_license", "user_owned", "licensed_private"}
 EXAM_READY_QUALITY_STATUSES = {"active"}
 EXAM_READY_GOLD_STATUS = "gold"
+SUPPORTED_CBT_QUESTION_TYPES = {"single_choice", "multiple_response"}
 SOURCE_BACKED_MODES = {"source-backed", "source_backed", "source-backed-cbt", "real-cbt", "private-cbt"}
 SYNTHETIC_SOURCE_TYPES = {"synthetic", "synthetic_recent_scope"}
 SOURCE_BACKED_BLOCKED_QUALITY_STATUSES = {"needs_repair", "broken", "outdated"}
@@ -19,7 +20,7 @@ GCP_GAIL_ALLOWED_DOC_HOSTS = (
 
 
 def is_exam_ready_mode(mode: str) -> bool:
-    return mode in {EXAM_READY_MODE, "exam_ready", "exam-ready-cbt"}
+    return mode in {EXAM_READY_MODE, "exam_ready", "exam-ready-cbt", "final-mock", "final_mock"}
 
 
 def is_source_backed_mode(mode: str) -> bool:
@@ -32,7 +33,7 @@ def is_exam_ready_row(row: sqlite3.Row) -> bool:
         and row["validity_status"] == "current"
         and row["gold_status"] == EXAM_READY_GOLD_STATUS
         and row["source_tier"] in EXAM_READY_SOURCE_TIERS
-        and row["question_type"] == "single_choice"
+        and row["question_type"] in SUPPORTED_CBT_QUESTION_TYPES
     )
 
 
@@ -41,7 +42,7 @@ def is_source_backed_row(row: sqlite3.Row) -> bool:
         row["source_type"] not in SYNTHETIC_SOURCE_TYPES
         and row["source_tier"] != "synthetic"
         and row["quality_status"] not in SOURCE_BACKED_BLOCKED_QUALITY_STATUSES
-        and row["question_type"] == "single_choice"
+        and row["question_type"] in SUPPORTED_CBT_QUESTION_TYPES
     )
 
 
@@ -66,7 +67,7 @@ def coverage_report(conn: sqlite3.Connection, exam_id: str) -> dict[str, Any]:
                    AND q.validity_status = 'current'
                    AND q.gold_status = 'gold'
                    AND q.source_tier IN ('official_sample', 'open_license', 'user_owned', 'licensed_private')
-                   AND q.question_type = 'single_choice'
+                   AND q.question_type IN ('single_choice', 'multiple_response')
                   THEN 1
                 END
               ) AS exam_ready
@@ -123,7 +124,7 @@ def exam_ready_question_count(conn: sqlite3.Connection, exam_id: str) -> int:
           AND validity_status = 'current'
           AND gold_status = 'gold'
           AND source_tier IN ('official_sample', 'open_license', 'user_owned', 'licensed_private')
-          AND question_type = 'single_choice'
+          AND question_type IN ('single_choice', 'multiple_response')
         """,
         (exam_id,),
     ).fetchone()["n"]

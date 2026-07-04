@@ -7,7 +7,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from .quality import EXAM_READY_SOURCE_TIERS, required_domain_counts
+from .quality import EXAM_READY_SOURCE_TIERS, SUPPORTED_CBT_QUESTION_TYPES, required_domain_counts
 
 
 GOLD_STATUS_READY = "gold"
@@ -35,7 +35,7 @@ def is_gold_row(row: sqlite3.Row) -> bool:
         and row["validity_status"] == "current"
         and row["source_tier"] in EXAM_READY_SOURCE_TIERS
         and row["source_tier"] != "synthetic"
-        and row["question_type"] == "single_choice"
+        and row["question_type"] in SUPPORTED_CBT_QUESTION_TYPES
     )
 
 
@@ -148,16 +148,16 @@ def gold_row_issues(row: sqlite3.Row, *, require_gold_status: bool) -> list[dict
         issues.append(make_issue("error", "validity_not_current", "validity_status=current가 아닙니다.", question_id=question_id))
     if row["source_tier"] not in EXAM_READY_SOURCE_TIERS or row["source_tier"] == "synthetic":
         issues.append(make_issue("error", "source_tier_not_allowed", "gold 문항으로 쓸 수 없는 source_tier입니다.", question_id=question_id))
-    if row["question_type"] != "single_choice":
-        issues.append(make_issue("error", "unsupported_question_type", "현재 gold CBT는 single_choice만 지원합니다.", question_id=question_id))
+    if row["question_type"] not in SUPPORTED_CBT_QUESTION_TYPES:
+        issues.append(make_issue("error", "unsupported_question_type", "현재 gold CBT가 지원하지 않는 question_type입니다.", question_id=question_id))
 
     choices = parse_json(row["choices_json"], [])
     answer_json = parse_json(row["answer_json"], {})
-    answer_choices = answer_json.get("choices") if isinstance(answer_json, dict) else None
-    if not isinstance(choices, list) or len(choices) != 4 or not all(isinstance(item, str) and item.strip() for item in choices):
-        issues.append(make_issue("error", "invalid_choices", "선택지는 비어 있지 않은 문자열 4개여야 합니다.", question_id=question_id))
-    if answer_choices != [row["answer"]]:
-        issues.append(make_issue("error", "answer_mapping_mismatch", "answer와 answer_json.choices가 일치하지 않습니다.", question_id=question_id))
+    answer_choices = normalized_answer_choices(answer_json)
+    if not isinstance(choices, list) or len(choices) < 4 or not all(isinstance(item, str) and item.strip() for item in choices):
+        issues.append(make_issue("error", "invalid_choices", "선택지는 비어 있지 않은 문자열 4개 이상이어야 합니다.", question_id=question_id))
+    if not valid_answer_mapping(row["question_type"], answer_choices, len(choices), row["answer"]):
+        issues.append(make_issue("error", "answer_mapping_mismatch", "question_type, answer, answer_json.choices가 일치하지 않습니다.", question_id=question_id))
 
     explanation = str(row["explanation"] or "").strip()
     if len(explanation) < 20:
@@ -176,8 +176,8 @@ def gold_row_issues(row: sqlite3.Row, *, require_gold_status: bool) -> list[dict
     else:
         missing = [
             str(idx)
-            for idx in range(1, 5)
-            if idx != row["answer"] and not str(distractors.get(str(idx), "")).strip()
+            for idx in range(1, len(choices) + 1)
+            if idx not in answer_choices and not str(distractors.get(str(idx), "")).strip()
         ]
         if missing:
             issues.append(
@@ -343,6 +343,80 @@ def render_final_audit_report(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def audit_readiness(conn: sqlite3.Connection, *, min_rounds: int = 3) -> dict[str, Any]:
+    exams = conn.execute("SELECT * FROM exams ORDER BY id").fetchall()
+    rows = []
+    for exam in exams:
+        final_report = audit_final_bank(conn, exam["id"])
+        official_count = int(exam["official_question_count"])
+        target = official_count * min_rounds
+        gold_questions = int(final_report["gold_questions"])
+        source_backed = source_backed_count(conn, exam["id"])
+        if not final_report["ready"]:
+            status = "RED"
+            reason = "정규 1회분 gold audit 미통과"
+        elif gold_questions < target:
+            status = "YELLOW"
+            reason = f"gold {gold_questions}/{target}문항: 반복 학습 회전수 부족"
+        else:
+            status = "GREEN"
+            reason = f"gold {gold_questions}/{target}문항: 최소 {min_rounds}회분 충족"
+        rows.append(
+            {
+                "exam_id": exam["id"],
+                "exam_name": exam["name"],
+                "status": status,
+                "reason": reason,
+                "official_question_count": official_count,
+                "gold_questions": gold_questions,
+                "source_backed_questions": source_backed,
+                "target_gold_questions": target,
+                "ready_one_round": bool(final_report["ready"]),
+                "blocking_issues": final_report["issues"][:10],
+            }
+        )
+    return {"min_rounds": min_rounds, "exams": rows}
+
+
+def source_backed_count(conn: sqlite3.Connection, exam_id: str) -> int:
+    return conn.execute(
+        """
+        SELECT COUNT(*) AS n
+        FROM questions
+        WHERE exam_id = ?
+          AND source_tier != 'synthetic'
+          AND source_type NOT IN ('synthetic', 'synthetic_recent_scope')
+        """,
+        (exam_id,),
+    ).fetchone()["n"]
+
+
+def render_readiness_report(report: dict[str, Any]) -> str:
+    lines = [
+        "# 전체 시험 준비도 점검",
+        "",
+        f"- 최소 기준: 정규 시험 {report['min_rounds']}회분 gold 문제은행",
+        "",
+        "## 과목별 상태",
+    ]
+    for row in report["exams"]:
+        lines.append(
+            f"- {row['exam_id']}: {row['status']} | gold {row['gold_questions']}/{row['target_gold_questions']}문항 | "
+            f"source-backed {row['source_backed_questions']}문항 | {row['reason']}"
+        )
+    lines.extend(["", "## 차단 이슈 요약"])
+    for row in report["exams"]:
+        if not row["blocking_issues"]:
+            continue
+        lines.append(f"- {row['exam_id']}")
+        for issue in row["blocking_issues"][:3]:
+            location = issue.get("question_id") or issue.get("domain_id") or "bank"
+            lines.append(f"  - [{issue['code']}] {location}: {issue['message']}")
+    if all(not row["blocking_issues"] for row in report["exams"]):
+        lines.append("- 없음")
+    return "\n".join(lines)
+
+
 def make_issue(
     severity: str,
     code: str,
@@ -364,6 +438,35 @@ def parse_json(value: str, default: Any) -> Any:
         return json.loads(value)
     except (TypeError, ValueError):
         return default
+
+
+def normalized_answer_choices(answer_json: Any) -> list[int]:
+    choices = answer_json.get("choices") if isinstance(answer_json, dict) else None
+    if not isinstance(choices, list):
+        return []
+    normalized: list[int] = []
+    for choice in choices:
+        try:
+            value = int(choice)
+        except (TypeError, ValueError):
+            return []
+        if value not in normalized:
+            normalized.append(value)
+    return sorted(normalized)
+
+
+def valid_answer_mapping(question_type: str, answer_choices: list[int], choice_count: int, answer: int) -> bool:
+    if not answer_choices:
+        return False
+    if any(choice < 1 or choice > choice_count for choice in answer_choices):
+        return False
+    if int(answer) != answer_choices[0]:
+        return False
+    if question_type == "single_choice":
+        return len(answer_choices) == 1
+    if question_type == "multiple_response":
+        return len(answer_choices) >= 2
+    return False
 
 
 def valid_string_list(value: Any) -> bool:

@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS questions (
   question_text TEXT NOT NULL,
   choices_json TEXT NOT NULL,
   answer_json TEXT NOT NULL DEFAULT '{"choices":[1]}',
-  answer INTEGER NOT NULL CHECK(answer BETWEEN 1 AND 4),
+  answer INTEGER NOT NULL CHECK(answer >= 0),
   explanation TEXT NOT NULL,
   difficulty TEXT NOT NULL,
   source_type TEXT NOT NULL,
@@ -91,8 +91,8 @@ CREATE TABLE IF NOT EXISTS attempts (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES sessions(id),
   question_id TEXT NOT NULL REFERENCES questions(id),
-  user_answer INTEGER NOT NULL CHECK(user_answer BETWEEN 1 AND 4),
-  correct_answer INTEGER NOT NULL CHECK(correct_answer BETWEEN 1 AND 4),
+  user_answer INTEGER NOT NULL CHECK(user_answer >= 0),
+  correct_answer INTEGER NOT NULL CHECK(correct_answer >= 0),
   user_answer_json TEXT NOT NULL DEFAULT '{}',
   correct_answer_json TEXT NOT NULL DEFAULT '{}',
   is_correct INTEGER NOT NULL CHECK(is_correct IN (0, 1)),
@@ -145,6 +145,7 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
 def initialize(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
     ensure_schema_extensions(conn)
+    relax_answer_check_constraints(conn)
     conn.executescript(TRIGGERS)
     backfill_v2_columns(conn)
     conn.commit()
@@ -190,6 +191,92 @@ def ensure_columns(conn: sqlite3.Connection, table: str, definitions: dict[str, 
     for name, definition in definitions.items():
         if name not in existing:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+
+
+def relax_answer_check_constraints(conn: sqlite3.Connection) -> None:
+    questions_sql = table_sql(conn, "questions")
+    attempts_sql = table_sql(conn, "attempts")
+    if "answer INTEGER NOT NULL CHECK(answer BETWEEN 1 AND 4)" in questions_sql:
+        rebuild_questions_table(conn)
+    if "user_answer INTEGER NOT NULL CHECK(user_answer BETWEEN 1 AND 4)" in attempts_sql:
+        rebuild_attempts_table(conn)
+
+
+def table_sql(conn: sqlite3.Connection, table: str) -> str:
+    row = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)).fetchone()
+    return row["sql"] if row is not None else ""
+
+
+def rebuild_questions_table(conn: sqlite3.Connection) -> None:
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.execute(
+        """
+        CREATE TABLE questions_new (
+          id TEXT PRIMARY KEY,
+          exam_id TEXT NOT NULL REFERENCES exams(id),
+          domain_id TEXT NOT NULL REFERENCES domains(id),
+          concept_id TEXT NOT NULL REFERENCES concepts(id),
+          question_type TEXT NOT NULL DEFAULT 'single_choice',
+          question_text TEXT NOT NULL,
+          choices_json TEXT NOT NULL,
+          answer_json TEXT NOT NULL DEFAULT '{"choices":[1]}',
+          answer INTEGER NOT NULL CHECK(answer >= 0),
+          explanation TEXT NOT NULL,
+          difficulty TEXT NOT NULL,
+          source_type TEXT NOT NULL,
+          source_ref TEXT NOT NULL,
+          source_license TEXT NOT NULL DEFAULT 'unknown',
+          source_tier TEXT NOT NULL DEFAULT 'unknown',
+          storage_policy TEXT NOT NULL DEFAULT 'raw_allowed',
+          validity_status TEXT NOT NULL DEFAULT 'current',
+          quality_status TEXT NOT NULL DEFAULT 'active',
+          scope_version TEXT NOT NULL DEFAULT '',
+          official_checked_at TEXT NOT NULL DEFAULT '',
+          quality_notes TEXT NOT NULL DEFAULT '',
+          correct_rationale TEXT NOT NULL DEFAULT '',
+          distractor_rationales_json TEXT NOT NULL DEFAULT '{}',
+          review_concepts_json TEXT NOT NULL DEFAULT '[]',
+          official_scope_refs_json TEXT NOT NULL DEFAULT '[]',
+          gold_status TEXT NOT NULL DEFAULT 'none',
+          gold_checked_at TEXT NOT NULL DEFAULT '',
+          gold_notes TEXT NOT NULL DEFAULT '',
+          provenance_json TEXT NOT NULL DEFAULT '{}'
+        )
+        """
+    )
+    columns = ", ".join(row["name"] for row in conn.execute("PRAGMA table_info(questions)").fetchall())
+    conn.execute(f"INSERT INTO questions_new ({columns}) SELECT {columns} FROM questions")
+    conn.execute("DROP TABLE questions")
+    conn.execute("ALTER TABLE questions_new RENAME TO questions")
+    conn.execute("PRAGMA foreign_keys = ON")
+
+
+def rebuild_attempts_table(conn: sqlite3.Connection) -> None:
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.execute(
+        """
+        CREATE TABLE attempts_new (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL REFERENCES sessions(id),
+          question_id TEXT NOT NULL REFERENCES questions(id),
+          user_answer INTEGER NOT NULL CHECK(user_answer >= 0),
+          correct_answer INTEGER NOT NULL CHECK(correct_answer >= 0),
+          user_answer_json TEXT NOT NULL DEFAULT '{}',
+          correct_answer_json TEXT NOT NULL DEFAULT '{}',
+          is_correct INTEGER NOT NULL CHECK(is_correct IN (0, 1)),
+          mistake_reason TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL,
+          UNIQUE(session_id, question_id)
+        )
+        """
+    )
+    columns = ", ".join(row["name"] for row in conn.execute("PRAGMA table_info(attempts)").fetchall())
+    conn.execute(f"INSERT INTO attempts_new ({columns}) SELECT {columns} FROM attempts")
+    conn.execute("DROP TABLE attempts")
+    conn.execute("ALTER TABLE attempts_new RENAME TO attempts")
+    conn.execute("PRAGMA foreign_keys = ON")
 
 
 def backfill_v2_columns(conn: sqlite3.Connection) -> None:

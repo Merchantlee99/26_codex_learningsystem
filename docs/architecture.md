@@ -96,14 +96,20 @@ gold candidate
 
 gold / exam-ready
   final audit을 통과해 바로 시험 대비용으로 풀 수 있는 문항
+
+final-mock
+  정규 문항 수와 gold 문항만 사용하는 최종 모의고사
 ```
 
 `exam-ready` 모드는 `quality_status=active`, `validity_status=current`, `gold_status=gold`인 문항만 사용합니다. 그래서 단순히 문제 수가 많아도 placeholder 해설, 임시 개념 매핑, 공식 출제범위 참조 누락이 있으면 실전 모드로 승격하지 않습니다.
+
+복수정답 문항은 `question_type=multiple_response`, `answer_json.choices=[1,3]` 형태로 저장합니다. 레거시 `answer` 컬럼은 대표값이고, 실제 채점은 `answer_json` 기준입니다.
 
 최종 검수 명령:
 
 ```bash
 python3 -m cert_study audit final --exam SQLD
+python3 -m cert_study audit readiness --min-rounds 3
 ```
 
 검수용 템플릿을 만들고 보강하는 흐름:
@@ -138,3 +144,5 @@ python3 /Users/isanginn/.codex/skills/.system/plugin-creator/scripts/validate_pl
 - Notion 동기화 기본 비활성 동작
 - gold 문제은행 검수
 - exam-ready 모드가 gold 문항만 사용하는지
+- final-mock 모드가 정규 문항 수와 gold 문항만 사용하는지
+- multiple_response 문항이 정확한 정답 세트 기준으로 채점되는지

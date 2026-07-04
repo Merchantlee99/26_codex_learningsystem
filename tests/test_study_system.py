@@ -17,9 +17,9 @@ from cert_study.importers.info_processing import inspect_info_processing_archive
 from cert_study.importers.kdata_text import convert_kdata_text_sources, inspect_kdata_text_sources
 from cert_study.mcp_server import call_tool, handle_message
 from cert_study.notion_sync import prepare_notion_sync_plan
-from cert_study.gold import audit_final_bank, promote_gold_candidates, render_final_audit_report
+from cert_study.gold import audit_final_bank, audit_readiness, promote_gold_candidates, render_final_audit_report, render_readiness_report
 from cert_study.quality import coverage_report, promote_gcp_gail_questions
-from cert_study.reporting import render_session_report, write_session_report
+from cert_study.reporting import render_question, render_session_report, write_session_report
 from cert_study.seed_public import seed_public_banks
 
 
@@ -695,6 +695,82 @@ export const PRACTICE_QUESTIONS: Question[] = [
         self.assertEqual(report["gold_questions"], 2)
         self.assertEqual(report["issues"], [])
 
+    def test_multiple_response_import_session_and_final_audit(self) -> None:
+        payload = multiple_response_payload()
+        path = Path(self.tmp.name) / "multiple_response_bank.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        import_bank_file(self.conn, path)
+
+        first = create_session(self.conn, exam_id="MULTI_READY_TEST", count=1, mode="exam-ready", seed=1)
+        self.assertIn("쉼표로", render_question(first))
+
+        is_correct, next_view = submit_answer(self.conn, first.session_id, [5, 1])
+        result = finish_session(self.conn, first.session_id)
+        attempt = self.conn.execute(
+            "SELECT user_answer_json, correct_answer_json FROM attempts WHERE session_id = ?",
+            (first.session_id,),
+        ).fetchone()
+        audit = audit_final_bank(self.conn, "MULTI_READY_TEST")
+
+        self.assertTrue(is_correct)
+        self.assertIsNone(next_view)
+        self.assertEqual(result["correct"], 1)
+        self.assertEqual(result["score"], 100.0)
+        self.assertTrue(audit["ready"])
+        self.assertEqual(json.loads(attempt["user_answer_json"])["choices"], [1, 5])
+        self.assertEqual(json.loads(attempt["correct_answer_json"])["choices"], [1, 5])
+
+    def test_multiple_response_requires_exact_set_for_correct_answer(self) -> None:
+        path = Path(self.tmp.name) / "multiple_response_bank.json"
+        path.write_text(json.dumps(multiple_response_payload(), ensure_ascii=False), encoding="utf-8")
+        import_bank_file(self.conn, path)
+
+        first = create_session(self.conn, exam_id="MULTI_READY_TEST", count=1, mode="exam-ready", seed=1)
+        is_correct, _next_view = submit_answer(self.conn, first.session_id, [1])
+        result = finish_session(self.conn, first.session_id)
+        report = render_session_report(self.conn, first.session_id)
+
+        self.assertFalse(is_correct)
+        self.assertEqual(result["correct"], 0)
+        self.assertIn("내 답: 1번", report)
+        self.assertIn("정답: 1, 5번", report)
+
+    def test_readiness_audit_marks_current_exam_bank_depth(self) -> None:
+        good = exam_ready_payload(
+            [
+                ("Q-ACTIVE-1", "open_license", "active", "current", 1),
+                ("Q-ACTIVE-2", "open_license", "active", "current", 2),
+            ]
+        )
+        bad = exam_ready_payload(
+            [("Q-ACTIVE-1", "open_license", "active", "current", 1)],
+            official_count=2,
+        )
+        bad["exam"]["id"] = "EXAM_NOT_READY"
+        bad["exam"]["name"] = "부족한 시험"
+        bad["domains"][0]["id"] = "ENR-D1"
+        bad["domains"][0]["exam_id"] = "EXAM_NOT_READY"
+        bad["concepts"][0]["id"] = "ENR-C1"
+        bad["concepts"][0]["domain_id"] = "ENR-D1"
+        for question in bad["questions"]:
+            question["id"] = "ENR-Q1"
+            question["domain_id"] = "ENR-D1"
+            question["concept_id"] = "ENR-C1"
+        good_path = Path(self.tmp.name) / "ready.json"
+        bad_path = Path(self.tmp.name) / "not_ready.json"
+        good_path.write_text(json.dumps(good, ensure_ascii=False), encoding="utf-8")
+        bad_path.write_text(json.dumps(bad, ensure_ascii=False), encoding="utf-8")
+        import_bank_file(self.conn, good_path)
+        import_bank_file(self.conn, bad_path)
+
+        report = audit_readiness(self.conn, min_rounds=1)
+        rendered = render_readiness_report(report)
+        by_exam = {row["exam_id"]: row for row in report["exams"]}
+
+        self.assertEqual(by_exam["EXAM_READY_TEST"]["status"], "GREEN")
+        self.assertEqual(by_exam["EXAM_NOT_READY"]["status"], "RED")
+        self.assertIn("EXAM_NOT_READY", rendered)
+
     def test_promote_gold_candidates_requires_full_rationale_fields(self) -> None:
         payload = exam_ready_payload(
             [
@@ -1292,6 +1368,54 @@ def exam_ready_payload(
             for row in question_rows
             for question_id, source_tier, quality_status, validity_status, answer in [row[:5]]
             for gold_status in [gold_status_for(row)]
+        ],
+    }
+
+
+def multiple_response_payload() -> dict:
+    return {
+        "exam": {
+            "id": "MULTI_READY_TEST",
+            "name": "복수정답 테스트",
+            "official_question_count": 1,
+            "official_duration_minutes": 10,
+            "pass_score": 60,
+            "domain_min_score": 0,
+        },
+        "domains": [{"id": "MR-D1", "name": "복수정답 영역", "official_weight": 100, "official_question_count": 1}],
+        "concepts": [{"id": "MR-C1", "domain_id": "MR-D1", "name": "복수정답 개념", "review_note": "정답 선택지를 모두 고른다."}],
+        "questions": [
+            {
+                "id": "MR-Q1",
+                "domain_id": "MR-D1",
+                "concept_id": "MR-C1",
+                "question_type": "multiple_response",
+                "question_text": "다음 중 정답인 선택지를 모두 고르시오.",
+                "choices": ["정답 A", "오답 B", "오답 C", "오답 D", "정답 E"],
+                "answer_json": {"choices": [1, 5]},
+                "explanation": "1번과 5번이 요구 조건을 만족한다.",
+                "correct_rationale": "1번과 5번을 모두 골라야 정답이다.",
+                "distractor_rationales": {
+                    "2": "2번은 요구 조건을 만족하지 않는다.",
+                    "3": "3번은 요구 조건을 만족하지 않는다.",
+                    "4": "4번은 요구 조건을 만족하지 않는다.",
+                },
+                "review_concepts": ["복수정답 개념"],
+                "official_scope_refs": ["MULTI_READY_TEST-D1-C1"],
+                "difficulty": "medium",
+                "source_type": "public_license",
+                "source_ref": "unit-test",
+                "source_license": "MIT",
+                "source_tier": "open_license",
+                "storage_policy": "raw_allowed",
+                "validity_status": "current",
+                "quality_status": "active",
+                "scope_version": "2026",
+                "official_checked_at": "2026-07-05",
+                "gold_status": "gold",
+                "gold_checked_at": "2026-07-05",
+                "quality_notes": "unit test",
+            }
         ],
     }
 

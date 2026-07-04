@@ -21,7 +21,10 @@ def render_question(view) -> str:
     for idx, choice in enumerate(view.choices, start=1):
         lines.append(f"{idx}. {choice}")
     lines.append("")
-    lines.append("답변 형식: 번호만 입력하세요. 예: 3")
+    if view.question_type == "multiple_response":
+        lines.append("답변 형식: 정답 번호를 쉼표로 입력하세요. 예: 1,3")
+    else:
+        lines.append("답변 형식: 번호만 입력하세요. 예: 3")
     return "\n".join(lines)
 
 
@@ -78,15 +81,15 @@ def render_session_report(conn: sqlite3.Connection, session_id: str) -> str:
         lines.append("- 틀린 문제가 없습니다.")
     for row in wrongs:
         choices = json.loads(row["choices_json"])
-        user_choice = choices[row["user_answer"] - 1]
-        correct_choice = choices[row["correct_answer"] - 1]
+        user_choices = answer_choices_from_json(row["user_answer_json"], fallback=row["user_answer"])
+        correct_choices = answer_choices_from_json(row["correct_answer_json"], fallback=row["correct_answer"])
         lines.extend(
             [
                 "",
                 f"### {row['position']}번. {row['concept']}",
                 f"- 문제: {row['question_text']}",
-                f"- 내 답: {row['user_answer']}번. {user_choice}",
-                f"- 정답: {row['correct_answer']}번. {correct_choice}",
+                f"- 내 답: {format_answer_choices(user_choices, choices)}",
+                f"- 정답: {format_answer_choices(correct_choices, choices)}",
                 f"- 영역: {row['domain']}",
                 f"- 해설: {row['explanation']}",
                 f"- 내가 틀린 이유: {row['mistake_reason']}",
@@ -119,3 +122,27 @@ def render_session_report(conn: sqlite3.Connection, session_id: str) -> str:
         ]
     )
     return "\n".join(lines) + "\n"
+
+
+def answer_choices_from_json(value: str, *, fallback: int) -> list[int]:
+    try:
+        payload = json.loads(value)
+    except (TypeError, ValueError):
+        payload = {}
+    choices = payload.get("choices") if isinstance(payload, dict) else None
+    if not isinstance(choices, list) or not choices:
+        choices = [fallback]
+    return sorted({int(choice) for choice in choices})
+
+
+def format_answer_choices(answer_choices: list[int], choices: list[str]) -> str:
+    label = ", ".join(str(choice) for choice in answer_choices) + "번"
+    parts = []
+    for choice in answer_choices:
+        if 1 <= choice <= len(choices):
+            parts.append(f"{choice}번. {choices[choice - 1]}")
+        else:
+            parts.append(f"{choice}번")
+    if len(parts) == 1:
+        return parts[0]
+    return f"{label}. " + " / ".join(parts)
